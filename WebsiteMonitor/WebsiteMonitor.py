@@ -1,5 +1,9 @@
 from agency_swarm import Agent
-from .tools import FetchContentTool, ExtractContentTool, CompareAndPersistTool, NotificationTool
+# from .tools import FetchContentTool, ExtractContentTool, CompareAndPersistTool, NotificationTool
+from .tools.fetch_content_tool import FetchContentTool
+from .tools.extract_content_tool import ExtractContentTool
+from .tools.compare_and_persist_tool import CompareAndPersistTool
+from .tools.notification_tool import NotificationTool
 
 class WebsiteMonitor(Agent):
     def __init__(self):
