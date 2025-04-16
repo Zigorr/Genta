@@ -1,0 +1,9 @@
+requests
+python-dotenv
+agency-swarm # Core framework
+selenium
+selenium-stealth
+webdriver-manager
+playwright
+beautifulsoup4 # For HTML parsing
+openai # agency-swarm often uses OpenAI by default 
