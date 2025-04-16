@@ -26,9 +26,9 @@ class CompareAndPersistTool(BaseTool):
 
     def run(self):
         print("Tool: Comparing and Persisting content...")
-        url = self.shared_state.get("current_url")
-        new_content = self.shared_state.get("extracted_content")
-        fetch_extract_error = self.shared_state.get("error")
+        url = self._shared_state.get("current_url")
+        new_content = self._shared_state.get("extracted_content")
+        fetch_extract_error = self._shared_state.get("error")
 
         if fetch_extract_error:
             return f"Skipping compare/persist due to error: {fetch_extract_error}"
@@ -59,13 +59,13 @@ class CompareAndPersistTool(BaseTool):
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(new_content)
                 print(f"Updated stored content for {url}.")
-                self.shared_state.set("change_detected", True)
-                self.shared_state.set("previous_content_snippet", previous_content[:MAX_CONTENT_SNIPPET])
-                self.shared_state.set("new_content_snippet", new_content[:MAX_CONTENT_SNIPPET])
+                self._shared_state.set("change_detected", True)
+                self._shared_state.set("previous_content_snippet", previous_content[:MAX_CONTENT_SNIPPET])
+                self._shared_state.set("new_content_snippet", new_content[:MAX_CONTENT_SNIPPET])
                 return f"Change detected for {url}. Content updated."
             except Exception as e:
                 return f"Error writing new content file {file_path}: {e}"
         else:
             print(f"No change detected for {url}.")
-            self.shared_state.set("change_detected", False)
+            self._shared_state.set("change_detected", False)
             return f"No change detected for {url}." 

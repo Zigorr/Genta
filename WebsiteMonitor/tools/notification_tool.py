@@ -12,9 +12,9 @@ class NotificationTool(BaseTool):
 
     def run(self):
         print("Tool: Checking for notification...")
-        if self.shared_state.get("change_detected"):
-            url = self.shared_state.get("current_url", "Unknown URL")
-            new_snippet = self.shared_state.get("new_content_snippet", "N/A")
+        if self._shared_state.get("change_detected"):
+            url = self._shared_state.get("current_url", "Unknown URL")
+            new_snippet = self._shared_state.get("new_content_snippet", "N/A")
 
             message = f"Content change detected for: {url}\n"
             message += f"New Snippet: {new_snippet}...\n"
@@ -23,6 +23,6 @@ class NotificationTool(BaseTool):
             print("\n--- ALERT --- ALERT --- ALERT ---")
             print(message)
             print("--- END ALERT ---\n")
-            return "Notification sent (printed to console)."
+            return message
         else:
             return "No change detected, no notification sent." 

@@ -13,29 +13,29 @@ class ExtractContentTool(BaseTool):
 
     def run(self):
         print(f"Tool: Extracting content with selector: {self.selector}")
-        html_content = self.shared_state.get("fetched_html")
+        html_content = self._shared_state.get("fetched_html")
         if not html_content:
             error_msg = "Error: No fetched HTML content found in shared state."
-            self.shared_state.set("error", error_msg)
+            self._shared_state.set("error", error_msg)
             return error_msg
-        if self.shared_state.get("error"): # Check if fetch failed
-             return f"Skipping extraction due to fetch error: {self.shared_state.get('error')}"
+        if self._shared_state.get("error"): # Check if fetch failed
+             return f"Skipping extraction due to fetch error: {self._shared_state.get('error')}"
 
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
             elements = soup.select(self.selector)
             if not elements:
                 error_msg = f"Error: No elements found matching selector '{self.selector}'."
-                self.shared_state.set("error", error_msg)
+                self._shared_state.set("error", error_msg)
                 return error_msg
 
             extracted_text = ' '.join(elem.get_text(separator=' ', strip=True) for elem in elements)
             if not extracted_text:
                  extracted_text = "" # Represent no text found vs. an error
 
-            self.shared_state.set("extracted_content", extracted_text)
+            self._shared_state.set("extracted_content", extracted_text)
             return f"Successfully extracted content using selector: {self.selector}"
         except Exception as e:
             error_msg = f"Error parsing HTML or extracting content with selector '{self.selector}': {e}"
-            self.shared_state.set("error", error_msg)
+            self._shared_state.set("error", error_msg)
             return error_msg 

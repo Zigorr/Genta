@@ -51,16 +51,6 @@ agency = Agency(
 )
 print("Agency structure created successfully.")
 
-# --- Remove Old Monitoring State/Functions --- 
-# monitoring_thread = None
-# is_monitoring = False
-# logs = ["--- Waiting to start monitoring ---"]
-# stop_event = threading.Event()
-# def log_message(message):
-# def monitoring_loop(url, selector):
-# def start_monitoring(url, selector):
-# def stop_monitoring():
-# def get_logs():
 
 # --- Gradio Interface (using built-in demo) ---
 if __name__ == "__main__":
@@ -71,6 +61,6 @@ if __name__ == "__main__":
          print("--- Could not determine agency-swarm version. ---")
 
     # Launch the built-in Gradio demo
-    agency.demo_gradio(server_name="0.0.0.0", share=False)
+    agency.demo_gradio(server_name="0.0.0.0", share=True)
 
     print("--- Gradio Interface Closed ---") 
