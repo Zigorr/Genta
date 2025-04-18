@@ -1,1 +1,89 @@
-<!doctype html>\n<html>\n<head>\n    <title>Website Monitor Agency</title>\n    <style>\n        body { font-family: sans-serif; margin: 20px; }\n        #chatbox { height: 500px; width: 100%; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }\n        .message { margin-bottom: 10px; padding: 5px; border-radius: 5px; }\n        .user { background-color: #e1f5fe; text-align: right; margin-left: 40px;}\n        .assistant { background-color: #f1f1f1; margin-right: 40px; }\n        #input-area { display: flex; }\n        #input-area input { flex-grow: 1; padding: 10px; margin-right: 10px; }\n        #input-area button { padding: 10px; }\n        #logout { position: absolute; top: 10px; right: 10px; }\n    </style>\n</head>\n<body>\n    <h1>Website Monitor Agency</h1>\n    <div id=\"logout\"><a href=\"{{ url_for(\'logout\') }}\">Logout</a></div>\n\n    <div id=\"chatbox\">\n        <!-- Chat messages will appear here -->\n    </div>\n\n    <form id=\"input-area\">\n        <input type=\"text\" id=\"message-input\" placeholder=\"Enter task (e.g., monitor URL X with selector Y)\" autocomplete=\"off\">\n        <button type=\"submit\">Send</button>\n    </form>\n\n    <script>\n        const chatbox = document.getElementById(\'chatbox\');\n        const messageInput = document.getElementById(\'message-input\');\n        const inputForm = document.getElementById(\'input-area\');\n\n        function addMessage(role, text) {\n            const messageDiv = document.createElement(\'div\');\n            messageDiv.classList.add(\'message\', role);\n            // Basic sanitization to prevent HTML injection\n            const textNode = document.createTextNode(text);\n            messageDiv.appendChild(textNode);\n            chatbox.appendChild(messageDiv);\n            chatbox.scrollTop = chatbox.scrollHeight; // Scroll to bottom\n        }\n\n        inputForm.addEventListener(\'submit\', async (event) => {\n            event.preventDefault(); // Prevent default form submission\n            const message = messageInput.value.trim();\n            if (!message) return;\n\n            addMessage(\'user\', message);\n            messageInput.value = \'\'; // Clear input\n            messageInput.disabled = true; // Disable input while waiting\n\n            try {\n                const response = await fetch(\"{{ url_for(\'chat_api\') }}\", {\n                    method: \'POST\',\n                    headers: {\n                        \'Content-Type\': \'application/json\',\n                    },\n                    body: JSON.stringify({ message: message })\n                });\n\n                if (!response.ok) {\n                    throw new Error(`HTTP error! status: ${response.status}`);\n                }\n\n                const data = await response.json();\n                addMessage(\'assistant\', data.response);\n\n            } catch (error) {\n                console.error(\'Error fetching chat response:\', error);\n                addMessage(\'assistant\', `Error: ${error.message}. Check server logs.`);\n            }\n            finally {\n                 messageInput.disabled = false; // Re-enable input\n                 messageInput.focus();\n            }\n        });\n\n        // Initial focus\n        messageInput.focus();\n\n    </script>\n</body>\n</html> 
+<!doctype html>
+<html>
+<head>
+    <title>Website Monitor Agency</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        #chatbox { height: 500px; width: 100%; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+        .message { margin-bottom: 10px; padding: 5px; border-radius: 5px; word-wrap: break-word; }
+        .user { background-color: #e1f5fe; text-align: right; margin-left: 40px;}
+        .assistant { background-color: #f1f1f1; margin-right: 40px; }
+        #input-area { display: flex; }
+        #input-area input { flex-grow: 1; padding: 10px; margin-right: 10px; }
+        #input-area button { padding: 10px; }
+        #logout { position: absolute; top: 10px; right: 10px; }
+        .error { color: red; font-style: italic; }
+    </style>
+</head>
+<body>
+    <h1>Website Monitor Agency</h1>
+    <div id="logout"><a href="{{ url_for('logout') }}">Logout</a></div>
+
+    <div id="chatbox">
+        <!-- Chat messages will appear here -->
+    </div>
+
+    <form id="input-area">
+        <input type="text" id="message-input" placeholder="Enter task (e.g., monitor URL X with selector Y)" autocomplete="off">
+        <button type="submit">Send</button>
+    </form>
+
+    <script>
+        const chatbox = document.getElementById('chatbox');
+        const messageInput = document.getElementById('message-input');
+        const inputForm = document.getElementById('input-area');
+
+        function addMessage(role, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', role);
+            // Basic sanitization to prevent HTML injection - createTextNode is safe
+            const textNode = document.createTextNode(text);
+            messageDiv.appendChild(textNode);
+            chatbox.appendChild(messageDiv);
+            chatbox.scrollTop = chatbox.scrollHeight; // Scroll to bottom
+        }
+
+        inputForm.addEventListener('submit', async (event) => {
+            event.preventDefault(); // Prevent default form submission
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            addMessage('user', message);
+            messageInput.value = ''; // Clear input
+            messageInput.disabled = true; // Disable input while waiting
+
+            try {
+                const response = await fetch("{{ url_for('chat_api') }}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ message: message })
+                });
+
+                const data = await response.json(); // Try to parse JSON regardless of status
+
+                if (!response.ok) {
+                    // Display error from JSON if available, otherwise use status text
+                    const errorText = data.error || `HTTP error! status: ${response.status} ${response.statusText}`;
+                    throw new Error(errorText);
+                }
+
+                addMessage('assistant', data.response);
+
+            } catch (error) {
+                console.error('Error fetching/processing chat response:', error);
+                // Display a user-friendly error message
+                addMessage('assistant error', `Sorry, an error occurred: ${error.message}. Please check server logs if possible.`);
+            } finally {
+                 messageInput.disabled = false; // Re-enable input
+                 messageInput.focus();
+            }
+        });
+
+        // Initial focus
+        messageInput.focus();
+
+    </script>
+</body>
+</html> 
