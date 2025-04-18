@@ -1,11 +1,9 @@
 # agency.py (main script)
 import os
-import sys  # Added sys
-import time # Keep time for potential use, though loop removed
-# import json # No longer directly used here
-# import threading # Removed threading
-import gradio as gr # Keep gradio for demo_gradio
-import agency_swarm # Keep agency_swarm
+import sys
+import time
+import gradio as gr
+import agency_swarm
 from dotenv import load_dotenv
 from agency_swarm import Agency
 from agency_swarm import set_openai_key
@@ -18,28 +16,37 @@ from MonitorCEO.MonitorCEO import MonitorCEO
 from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 
 # --- Configuration & Globals ---
-load_dotenv(override=True)
-# MONITOR_INTERVAL_SECONDS = 5 # Interval managed by user interaction/task frequency now
+load_dotenv(override=True) # Still useful for local development
 
 # --- LLM Configuration Check ---
-if not os.getenv("OPENAI_API_KEY"):
-    print("Error: OPENAI_API_KEY not found in .env file.")
-    # Potentially exit or raise error
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    print("Error: OPENAI_API_KEY environment variable not found.")
+    print("Please ensure it is set in your deployment environment (e.g., Railway Variables) or local .env file.")
+    sys.exit(1) # Exit if key is not found
 else:
-    set_openai_key(os.getenv("OPENAI_API_KEY"))
-    print("OpenAI API Key loaded.")
+    try:
+        set_openai_key(api_key)
+        print("OpenAI API Key loaded and set successfully.")
+    except Exception as e:
+        print(f"Error setting OpenAI API key: {e}")
+        sys.exit(1)
+
 
 # --- Instantiate Agents ---
+# This code will only run if the API key was successfully set above
 print("Initializing agents...")
 try:
     monitor_ceo = MonitorCEO()
     monitor_worker = WebsiteMonitor()
     print("Agents initialized successfully.")
 except Exception as e:
+    # This might catch other agent init errors, but the key error should be caught above.
     print(f"Error initializing agents: {e}")
-    # Potentially exit or raise error
+    sys.exit(1) # Exit if agents fail to initialize
 
 # --- Define Agency ---
+# This code will only run if agents were initialized successfully
 print("Creating agency structure...")
 agency = Agency(
     agency_chart=[
@@ -61,6 +68,9 @@ if __name__ == "__main__":
          print("--- Could not determine agency-swarm version. ---")
 
     # Launch the built-in Gradio demo
-    agency.demo_gradio(server_name="0.0.0.0", share=True)
+    # Railway uses PORT environment variable for the internal port
+    server_port = int(os.getenv("PORT", 7860)) # Default to 7860 if PORT not set
+    print(f"Launching Gradio on internal port: {server_port}")
+    agency.demo_gradio(server_name="0.0.0.0", server_port=server_port, share=True)
 
     print("--- Gradio Interface Closed ---") 
