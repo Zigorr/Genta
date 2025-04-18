@@ -78,10 +78,10 @@ def load_user(user_id):
         return User(id=user_id, password_hash=user_data['password_hash'])
     return None
 
-# --- Authentication Routes (Templates replaced with file rendering) ---
+# --- Authentication Routes (Use template files) ---
 
 @app.route('/')
-@login_required # Protect the main chat page
+@login_required
 def index():
     # Render the chat interface template
     return render_template('chat.html')
@@ -89,7 +89,7 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('index')) # Redirect to main chat page
+        return redirect(url_for('index'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -99,22 +99,11 @@ def login():
             login_user(user)
             flash('Logged in successfully.')
             next_page = request.args.get('next')
-            # Redirect to originally requested page or main chat page
             return redirect(next_page or url_for('index'))
         else:
             flash('Invalid username or password')
-    # Render login form from template file (create templates/login.html if needed)
-    # For now, keep inline template:
-    LOGIN_TEMPLATE = '''
-    <!doctype html><html><head><title>Login</title></head><body><h1>Login</h1>
-    {% with messages = get_flashed_messages() %}{% if messages %}<ul>{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}{% endwith %}
-    <form method="post">
-    Username: <input type="text" name="username"><br>
-    Password: <input type="password" name="password"><br>
-    <input type="submit" value="Login">
-    </form><p>Don't have an account? <a href="{{ url_for('register') }}">Register here</a></p></body></html>
-    '''
-    return render_template_string(LOGIN_TEMPLATE)
+    # Render login form from template file
+    return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -133,18 +122,8 @@ def register():
             save_users(users_db)
             flash('Registration successful! Please login.')
             return redirect(url_for('login'))
-    # Render register form from template file (create templates/register.html if needed)
-    # For now, keep inline template:
-    REGISTER_TEMPLATE = '''
-    <!doctype html><html><head><title>Register</title></head><body><h1>Register</h1>
-    {% with messages = get_flashed_messages() %}{% if messages %}<ul>{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}{% endwith %}
-    <form method="post">
-    Username: <input type="text" name="username"><br>
-    Password: <input type="password" name="password"><br>
-    <input type="submit" value="Register">
-    </form><p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p></body></html>
-    '''
-    return render_template_string(REGISTER_TEMPLATE)
+    # Render register form from template file
+    return render_template('register.html')
 
 @app.route('/logout')
 @login_required
