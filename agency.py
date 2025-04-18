@@ -187,7 +187,7 @@ print("Agency structure created successfully.")
 # --- Gradio Interface Setup ---
 # Use launch=False to get the Gradio app object without starting a server
 # We'll let Flask manage the server
-gradio_interface = agency.demo_gradio(launch=False, server_name="0.0.0.0")
+gradio_interface = agency.demo_gradio(launch=False)
 
 # --- Mount Gradio App on Flask ---
 @app.route('/')
