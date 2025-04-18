@@ -8,7 +8,7 @@ from agency_swarm import set_openai_key
 from dotenv import load_dotenv
 
 # --- Flask Imports ---
-from flask import Flask, request, render_template, redirect, url_for, flash, jsonify # Added render_template, jsonify
+from flask import Flask, request, render_template, redirect, url_for, flash, jsonify, render_template_string # Added render_template_string
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 # Removed a2wsgi import
