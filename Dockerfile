@@ -1,8 +1,8 @@
-# Use an official Python runtime as a parent image
-FROM python:3.11-slim
+# Use the full official Python runtime as a parent image
+FROM python:3.11
 
 # Add a build argument that can be changed to break the cache
-ARG FORCE_REBUILD=2 # Increment this value to force a rebuild
+ARG FORCE_REBUILD=3 # Increment this value to force a rebuild
 
 # Set environment variables to prevent Python from writing pyc files and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE 1
