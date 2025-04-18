@@ -30,6 +30,9 @@ COPY requirements.txt .
 RUN echo "Forcing rebuild with arg: ${FORCE_REBUILD}" && \
     pip install --no-cache-dir -r requirements.txt
 
+# Add a step to show where gunicorn's files (including scripts) were installed
+RUN pip show -f gunicorn
+
 # Remove the diagnostic ls command
 # RUN ls -l /usr/local/bin
 
@@ -45,8 +48,6 @@ COPY . .
 # Gunicorn will bind to the port specified in the CMD
 # EXPOSE 7860 # Remove old Gradio expose
 
-# Define the command to run the application using Gunicorn with absolute path
-# Gunicorn will bind to 0.0.0.0 and the port specified by the $PORT environment variable
-# agency:app tells gunicorn to look for the 'app' object inside the 'agency.py' file
-# Increase timeout to handle potentially long Gradio/Agency Swarm startup
-CMD ["/usr/local/bin/gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "8", "--timeout", "120", "agency:app"] 
+# Define the command to run the application using Gunicorn
+# Revert to just 'gunicorn' for now and rely on PATH
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "8", "--timeout", "120", "agency:app"] 
