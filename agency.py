@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from flask import Flask, request, render_template_string, redirect, url_for, flash, session
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from a2wsgi import WSGIMiddleware # Import WSGI Middleware
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -123,7 +124,7 @@ REGISTER_TEMPLATE = '''
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('gradio_app'))
+        return redirect(url_for('serve_gradio'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -132,7 +133,7 @@ def login():
             user = User(id=username, password_hash=user_data['password_hash'])
             login_user(user)
             flash('Logged in successfully.')
-            return redirect(url_for('gradio_app')) # Redirect to the Gradio app route
+            return redirect(url_for('serve_gradio'))
         else:
             flash('Invalid username or password')
     return render_template_string(LOGIN_TEMPLATE)
@@ -140,7 +141,7 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
-        return redirect(url_for('gradio_app'))
+        return redirect(url_for('serve_gradio'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -151,7 +152,7 @@ def register():
         else:
             hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
             users_db[username] = {'password_hash': hashed_password}
-            save_users(users_db) # Persist user
+            save_users(users_db)
             flash('Registration successful! Please login.')
             return redirect(url_for('login'))
     return render_template_string(REGISTER_TEMPLATE)
@@ -212,27 +213,18 @@ def run_agency_chat(message, history):
 # Create Gradio Blocks interface manually
 with gr.Blocks() as manual_gradio_interface:
     gr.Markdown("## Website Monitor Agency Chat")
-    # Addressing the UserWarning by setting type='messages'
-    chatbot = gr.Chatbot(height=600, type='messages') # Use messages format
+    chatbot = gr.Chatbot(height=600, type='messages')
     msg = gr.Textbox(label="Your Message", placeholder="Enter task (e.g., monitor URL X with selector Y)")
     clear = gr.Button("Clear Chat")
-
-    # Define submit action
-    # Inputs: textbox content, chatbot state (history)
-    # Outputs: textbox (to clear it), chatbot state (updated history)
-    # Note: For type='messages', history format is list of dicts [{'role':'user/assistant', 'content':...}]
-    # The run_agency_chat function will need adjustment if using stateful 'messages' history.
-    # Let's stick to a simpler stateless approach first by ignoring history input for agency call.
 
     def stateless_chat_handler(message, history):
         print(f"User message: {message}")
         try:
-            response_text = agency.get_completion(message) # Pass message directly
+            response_text = agency.get_completion(message)
             print(f"Agency response: {response_text}")
-            # Append user and assistant messages to history
             history.append({"role": "user", "content": message})
             history.append({"role": "assistant", "content": response_text})
-            return "", history # Clear input, return updated history
+            return "", history
         except Exception as e:
             print(f"Error during agency completion: {e}")
             import traceback
@@ -240,20 +232,32 @@ with gr.Blocks() as manual_gradio_interface:
             error_msg = f"An error occurred: {e}\nTraceback:\n{tb_str}"
             history.append({"role": "user", "content": message})
             history.append({"role": "assistant", "content": error_msg})
-            return "", history # Clear input, return history with error
+            return "", history
 
     msg.submit(stateless_chat_handler, [msg, chatbot], [msg, chatbot])
     clear.click(lambda: (None, []), None, [msg, chatbot], queue=False)
 
-# --- Mount Gradio App on Flask ---
-@app.route('/')
-@login_required # Protect the Gradio interface
-def gradio_app():
-    # Placeholder function, mounting handles the display
-    return "Loading Monitoring Agency..."
+# --- Mount Gradio App using WSGIMiddleware ---
+# Get the underlying ASGI app from Gradio Blocks
+# This is an internal detail, check Gradio source/docs if it changes
+gradio_asgi_app = gr.routes.App.create_app(manual_gradio_interface)
 
-# Mount the manually created interface
-app = gr.mount_gradio_app(app, manual_gradio_interface, path="/")
+# Wrap the ASGI app with WSGIMiddleware
+gradio_wsgi_app = WSGIMiddleware(gradio_asgi_app)
+
+# Mount the WSGI-wrapped Gradio app onto a specific Flask route
+@app.route('/gradio', methods=['GET', 'POST', 'HEAD']) # Need POST/HEAD for Gradio functionality
+@login_required
+def serve_gradio():
+    # Delegate requests to the WSGI-wrapped Gradio app
+    return gradio_wsgi_app
+
+# --- Adjust main redirect to point to the new Gradio mount point ---
+@app.route('/')
+@login_required
+def index():
+    # Redirect logged-in users from the root to the Gradio app
+    return redirect(url_for('serve_gradio'))
 
 # --- Main Entry Point (for Gunicorn/Waitress) ---
 # The Flask 'app' object is the entry point for WSGI servers
