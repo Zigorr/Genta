@@ -71,6 +71,10 @@ if __name__ == "__main__":
     # Railway uses PORT environment variable for the internal port
     server_port = int(os.getenv("PORT", 7860)) # Default to 7860 if PORT not set
     print(f"Launching Gradio on internal port: {server_port}")
+    print("Gradio launch skipped for diagnostics, sleeping for 10 minutes...")
+    time.sleep(600) # Sleep for 600 seconds (10 minutes)
+    print("Sleep finished.") # You likely won't see this if it works
+
     agency.demo_gradio(server_name="0.0.0.0", server_port=server_port, share=True)
 
     print("--- Gradio Interface Closed ---") 
