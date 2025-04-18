@@ -25,13 +25,14 @@ COPY requirements.txt .
 # Remove the previous cache-busting ARG
 # ARG CACHEBUST=1
 
-# Install dependencies
-# Using the ARG via echo ensures this layer rebuilds if FORCE_REBUILD changes
+# Install dependencies and immediately check for gunicorn in the same RUN step
 RUN echo "Forcing rebuild with arg: ${FORCE_REBUILD}" && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    echo "Checking for gunicorn immediately after install:" && \
+    pip show -f gunicorn
 
 # Add a step to show where gunicorn's files (including scripts) were installed
-RUN pip show -f gunicorn
+# RUN pip show -f gunicorn # Combined into the step above
 
 # Remove the diagnostic ls command
 # RUN ls -l /usr/local/bin
