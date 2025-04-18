@@ -54,11 +54,11 @@ COPY . .
 # Gunicorn will bind to the port specified in the CMD
 # EXPOSE 7860 # Remove old Gradio expose
 
-# Define the command to run the main Flask application using Gunicorn
-# agency:app tells gunicorn to look for the 'app' object (our Flask app)
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120 agency:app
+# Define the command to run the main dispatcher application using Gunicorn
+# agency:application tells gunicorn to look for the 'application' object (the Dispatcher)
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120 agency:application
 
-# Old CMD pointing to the dispatcher object:
-# CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120 agency:application
+# Old CMD pointing to the flask app object:
+# CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120 agency:app
 
 # CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "8", "--timeout", "120", "agency:app"] # Old exec form 

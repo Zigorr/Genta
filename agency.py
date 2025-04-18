@@ -8,10 +8,11 @@ from agency_swarm import set_openai_key
 from dotenv import load_dotenv
 
 # --- Flask Imports ---
-from flask import Flask, request, render_template_string, redirect, url_for, flash, session, abort, Response
+from flask import Flask, request, render_template_string, redirect, url_for, flash, session, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from a2wsgi import WSGIMiddleware # Keep WSGI Middleware
+from werkzeug.middleware.dispatcher import DispatcherMiddleware # Import Dispatcher
+from a2wsgi import WSGIMiddleware # Import WSGI Middleware
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -43,12 +44,12 @@ else:
         print(f"Error setting OpenAI API key: {e}")
         sys.exit(1)
 
-# --- Flask App Setup (Now the main app) ---
-app = Flask(__name__) # Use standard 'app' name
-app.secret_key = FLASK_SECRET_KEY # Needed for sessions
+# --- Flask App Setup (For Auth Routes Only) ---
+flask_app = Flask(__name__) # Rename to avoid conflict
+flask_app.secret_key = FLASK_SECRET_KEY # Needed for sessions
 login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login' # Redirect to 'login' view if user is not logged in
+login_manager.init_app(flask_app)
+login_manager.login_view = 'login' # Set the login view for @login_required
 
 # --- User Management ---
 class User(UserMixin):
@@ -78,7 +79,7 @@ def load_user(user_id):
         return User(id=user_id, password_hash=user_data['password_hash'])
     return None
 
-# --- Authentication Routes (Defined on app) ---
+# --- Authentication Routes (Defined on flask_app) ---
 LOGIN_TEMPLATE = '''
 <!doctype html>
 <html>
@@ -121,18 +122,18 @@ REGISTER_TEMPLATE = '''
 </html>
 '''
 
-# Root redirects to Gradio if logged in, else to login
-@app.route('/')
+# Root route - redirects appropriately
+@flask_app.route('/')
 def index():
     if current_user.is_authenticated:
-        return redirect(url_for('serve_gradio'))
+        return redirect('/gradio') # Redirect to gradio mount point
     else:
         return redirect(url_for('login'))
 
-@app.route('/login', methods=['GET', 'POST'])
+@flask_app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('serve_gradio'))
+        return redirect('/gradio') # Redirect already logged-in users
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -141,16 +142,16 @@ def login():
             user = User(id=username, password_hash=user_data['password_hash'])
             login_user(user)
             flash('Logged in successfully.')
-            next_page = request.args.get('next') # Handle redirect after login
-            return redirect(next_page or url_for('serve_gradio'))
+            # Redirect directly to the Gradio path
+            return redirect('/gradio')
         else:
             flash('Invalid username or password')
     return render_template_string(LOGIN_TEMPLATE)
 
-@app.route('/register', methods=['GET', 'POST'])
+@flask_app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
-        return redirect(url_for('serve_gradio'))
+        return redirect('/gradio')
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -166,8 +167,8 @@ def register():
             return redirect(url_for('login'))
     return render_template_string(REGISTER_TEMPLATE)
 
-@app.route('/logout')
-@login_required
+@flask_app.route('/logout')
+@login_required # This should work fine as it's within Flask
 def logout():
     logout_user()
     flash('You have been logged out.')
@@ -221,28 +222,22 @@ with gr.Blocks() as manual_gradio_interface:
     msg.submit(stateless_chat_handler, [msg, chatbot], [msg, chatbot])
     clear.click(lambda: (None, []), None, [msg, chatbot], queue=False)
 
-# --- Create WSGI App for Gradio ---
+# --- Create WSGI Apps --- 
 gradio_asgi_app = gr.routes.App.create_app(manual_gradio_interface)
 gradio_wsgi_app = WSGIMiddleware(gradio_asgi_app)
 
-# --- Define Flask route to serve the protected Gradio WSGI app ---
-@app.route('/gradio', methods=['GET', 'POST', 'HEAD'])
-@login_required # Protect this route using Flask-Login
-def serve_gradio():
-    # Because this is within Flask, we can return the WSGI app directly.
-    # Flask/Werkzeug handles calling it with the correct environment.
-    # However, Flask expects a Response object or similar, not a raw WSGI app.
-    # We need to adapt the response generation.
+# --- Create Main Application with Dispatcher --- 
+# Mount the unprotected Gradio app at /gradio for now
+application = DispatcherMiddleware(flask_app, {
+    '/gradio': gradio_wsgi_app # Mount Gradio WSGI app directly
+})
 
-    # Create a Response object that delegates to the WSGI app
-    return Response(gradio_wsgi_app(request.environ, lambda status, headers: None), mimetype='text/html') # Mimetype might need adjustment
-    # A potentially cleaner way might exist using specific Werkzeug features if the above is problematic.
-
-# --- Main Entry Point (for Gunicorn/Waitress - runs 'app') ---
+# --- Main Entry Point (for Gunicorn/Waitress - runs 'application') ---
 if __name__ == "__main__":
-    # Run the Flask 'app' directly for local development
-    print("--- Starting Flask Development Server ---")
-    print("--- THIS IS FOR DEVELOPMENT ONLY - Use gunicorn/waitress in production ---")
+    # Run the main 'application' dispatcher using Werkzeug's development server
+    from werkzeug.serving import run_simple
+    print("--- Starting Werkzeug Development Server with Dispatcher ---")
+    print("--- THIS IS FOR DEVELOPMENT ONLY - Use gunicorn in production ---")
     # Access via http://127.0.0.1:5000/login or http://127.0.0.1:5000/register
     # Login will redirect to http://127.0.0.1:5000/gradio
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    run_simple('0.0.0.0', 5000, application, use_debugger=True, use_reloader=True) 
