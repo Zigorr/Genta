@@ -31,9 +31,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Ensure .dockerignore is configured properly to exclude unnecessary files (.git, .venv, etc.)
 COPY . .
 
-# Expose the port the app runs on (Gradio default is 7860)
-EXPOSE 7860
+# Expose the port Gunicorn will listen on (Railway provides this via $PORT)
+# We don't strictly need EXPOSE when using Railway's $PORT, but it's good practice
+# Gunicorn will bind to the port specified in the CMD
+# EXPOSE 7860 # Remove old Gradio expose
 
-# Define the command to run the application
-# Ensure agency.py is executable if needed (though usually not necessary for python scripts)
-CMD ["python", "agency.py"] 
+# Define the command to run the application using Gunicorn
+# Gunicorn will bind to 0.0.0.0 and the port specified by the $PORT environment variable
+# agency:app tells gunicorn to look for the 'app' object inside the 'agency.py' file
+# Increase timeout to handle potentially long Gradio/Agency Swarm startup
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "8", "--timeout", "120", "agency:app"] 
