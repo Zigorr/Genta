@@ -19,13 +19,15 @@ COPY requirements.txt .
 # If using Poetry:
 # COPY pyproject.toml poetry.lock* ./
 
+# Add a cache-busting argument (e.g., current date or a version number)
+# This ensures the RUN pip install layer is rebuilt if this line changes
+ARG CACHEBUST=1
+
 # Install dependencies
 # --no-cache-dir prevents caching which is good for image size but slower for rebuilds during dev
-# RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 # If using Poetry:
 # RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --no-dev
-RUN pip install --no-cache-dir -r requirements.txt
-
 
 # Copy the rest of the application code into the working directory
 # Ensure .dockerignore is configured properly to exclude unnecessary files (.git, .venv, etc.)
