@@ -26,6 +26,10 @@ ARG CACHEBUST=1
 # Install dependencies
 # --no-cache-dir prevents caching which is good for image size but slower for rebuilds during dev
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Add a step to list the contents of the bin directory to verify gunicorn exists
+RUN ls -l /usr/local/bin
+
 # If using Poetry:
 # RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --no-dev
 
@@ -38,8 +42,8 @@ COPY . .
 # Gunicorn will bind to the port specified in the CMD
 # EXPOSE 7860 # Remove old Gradio expose
 
-# Define the command to run the application using Gunicorn
+# Define the command to run the application using Gunicorn with absolute path
 # Gunicorn will bind to 0.0.0.0 and the port specified by the $PORT environment variable
 # agency:app tells gunicorn to look for the 'app' object inside the 'agency.py' file
 # Increase timeout to handle potentially long Gradio/Agency Swarm startup
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "8", "--timeout", "120", "agency:app"] 
+CMD ["/usr/local/bin/gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "8", "--timeout", "120", "agency:app"] 
