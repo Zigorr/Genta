@@ -54,6 +54,8 @@ COPY . .
 # Gunicorn will bind to the port specified in the CMD
 # EXPOSE 7860 # Remove old Gradio expose
 
-# Define the command to run the application using Gunicorn
-# Revert to just 'gunicorn' for now and rely on PATH
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "8", "--timeout", "120", "agency:app"] 
+# Define the command to run the application using Gunicorn (Shell form)
+# This form uses /bin/sh -c, which expands the $PORT variable
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120 agency:app
+
+# CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "8", "--timeout", "120", "agency:app"] # Old exec form 
