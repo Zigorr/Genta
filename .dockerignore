@@ -1,0 +1,39 @@
+# Git / Version Control
+.git
+.gitignore
+
+# Docker / Container
+Dockerfile
+.dockerignore
+
+# Python Virtual Environments
+.venv
+venv
+env
+
+# Python Cache / Compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor Configuration
+.vscode/
+.idea/
+*.code-workspace
+
+# Secrets - IMPORTANT!
+.env
+
+# Local Data (should be mounted as a volume in deployment)
+data/
+
+# Other project folders not needed in this container
+SMM-2.1-Fork-main/
+
+# Logs (if you generate local log files)
+*.log 
