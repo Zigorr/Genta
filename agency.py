@@ -122,6 +122,13 @@ REGISTER_TEMPLATE = '''
 </html>
 '''
 
+# Add the root route back to Flask app
+@flask_app.route('/')
+@login_required
+def index():
+    # If user is logged in (@login_required passed), redirect to the Gradio app
+    return redirect('/gradio') # Use the mount path for Gradio
+
 @flask_app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -134,10 +141,10 @@ def login():
             user = User(id=username, password_hash=user_data['password_hash'])
             login_user(user)
             flash('Logged in successfully.')
-            return redirect('/gradio') # Redirect to gradio mount point
+            # Ensure redirect goes to the correct Gradio path after login
+            return redirect('/gradio')
         else:
             flash('Invalid username or password')
-    # Use Flask context to render template string
     return render_template_string(LOGIN_TEMPLATE)
 
 @flask_app.route('/register', methods=['GET', 'POST'])
