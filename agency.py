@@ -8,11 +8,10 @@ from agency_swarm import set_openai_key
 from dotenv import load_dotenv
 
 # --- Flask Imports ---
-from flask import Flask, request, render_template_string, redirect, url_for, flash, session, abort
+from flask import Flask, request, render_template_string, redirect, url_for, flash, session, abort, Response
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.middleware.dispatcher import DispatcherMiddleware # Import Dispatcher
-from a2wsgi import WSGIMiddleware # Import WSGI Middleware
+from a2wsgi import WSGIMiddleware # Keep WSGI Middleware
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -44,12 +43,12 @@ else:
         print(f"Error setting OpenAI API key: {e}")
         sys.exit(1)
 
-# --- Flask App Setup (For Auth Routes Only) ---
-flask_app = Flask(__name__) # Rename to avoid conflict
-flask_app.secret_key = FLASK_SECRET_KEY # Needed for sessions
+# --- Flask App Setup (Now the main app) ---
+app = Flask(__name__) # Use standard 'app' name
+app.secret_key = FLASK_SECRET_KEY # Needed for sessions
 login_manager = LoginManager()
-login_manager.init_app(flask_app)
-# login_manager.login_view = 'login' # We handle redirects manually now or via dispatcher
+login_manager.init_app(app)
+login_manager.login_view = 'login' # Redirect to 'login' view if user is not logged in
 
 # --- User Management ---
 class User(UserMixin):
@@ -70,7 +69,7 @@ def save_users(users):
     with open(USERS_FILE, 'w') as f:
         json.dump(users, f, indent=4)
 
-users_db = load_users() # Load users into memory (simple approach)
+users_db = load_users()
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -79,7 +78,7 @@ def load_user(user_id):
         return User(id=user_id, password_hash=user_data['password_hash'])
     return None
 
-# --- Authentication Routes (Defined on flask_app) ---
+# --- Authentication Routes (Defined on app) ---
 LOGIN_TEMPLATE = '''
 <!doctype html>
 <html>
@@ -96,7 +95,7 @@ LOGIN_TEMPLATE = '''
     Password: <input type="password" name="password"><br>
     <input type="submit" value="Login">
   </form>
-  <p>Don't have an account? <a href="/register">Register here</a></p> <!-- Hardcoded paths for simplicity -->
+  <p>Don't have an account? <a href="{{ url_for('register') }}">Register here</a></p>
 </body>
 </html>
 '''
@@ -117,22 +116,23 @@ REGISTER_TEMPLATE = '''
     Password: <input type="password" name="password"><br>
     <input type="submit" value="Register">
   </form>
-   <p>Already have an account? <a href="/login">Login here</a></p> <!-- Hardcoded paths -->
+   <p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p>
 </body>
 </html>
 '''
 
-# Add the root route back to Flask app
-@flask_app.route('/')
-@login_required
+# Root redirects to Gradio if logged in, else to login
+@app.route('/')
 def index():
-    # If user is logged in (@login_required passed), redirect to the Gradio app
-    return redirect('/gradio') # Use the mount path for Gradio
+    if current_user.is_authenticated:
+        return redirect(url_for('serve_gradio'))
+    else:
+        return redirect(url_for('login'))
 
-@flask_app.route('/login', methods=['GET', 'POST'])
+@app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect('/gradio') # Redirect to gradio mount point
+        return redirect(url_for('serve_gradio'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -141,16 +141,16 @@ def login():
             user = User(id=username, password_hash=user_data['password_hash'])
             login_user(user)
             flash('Logged in successfully.')
-            # Ensure redirect goes to the correct Gradio path after login
-            return redirect('/gradio')
+            next_page = request.args.get('next') # Handle redirect after login
+            return redirect(next_page or url_for('serve_gradio'))
         else:
             flash('Invalid username or password')
     return render_template_string(LOGIN_TEMPLATE)
 
-@flask_app.route('/register', methods=['GET', 'POST'])
+@app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
-        return redirect('/gradio') # Redirect to gradio mount point
+        return redirect(url_for('serve_gradio'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -161,17 +161,17 @@ def register():
         else:
             hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
             users_db[username] = {'password_hash': hashed_password}
-            save_users(users_db) # Persist user
+            save_users(users_db)
             flash('Registration successful! Please login.')
-            return redirect('/login') # Redirect to login page
+            return redirect(url_for('login'))
     return render_template_string(REGISTER_TEMPLATE)
 
-@flask_app.route('/logout')
-@login_required # This still works as it's part of the Flask app context
+@app.route('/logout')
+@login_required
 def logout():
     logout_user()
     flash('You have been logged out.')
-    return redirect('/login') # Redirect to login page
+    return redirect(url_for('login'))
 
 # --- Instantiate Agents ---
 print("Initializing agents...")
@@ -213,7 +213,7 @@ with gr.Blocks() as manual_gradio_interface:
             print(f"Error during agency completion: {e}")
             import traceback
             tb_str = traceback.format_exc()
-            error_msg = f"An error occurred: {e}\\nTraceback:\\n{tb_str}"
+            error_msg = f"An error occurred: {e}\nTraceback:\n{tb_str}"
             history.append({"role": "user", "content": message})
             history.append({"role": "assistant", "content": error_msg})
             return "", history
@@ -221,49 +221,28 @@ with gr.Blocks() as manual_gradio_interface:
     msg.submit(stateless_chat_handler, [msg, chatbot], [msg, chatbot])
     clear.click(lambda: (None, []), None, [msg, chatbot], queue=False)
 
-# --- Create WSGI Apps ---
-# Get the underlying ASGI app from Gradio Blocks
+# --- Create WSGI App for Gradio ---
 gradio_asgi_app = gr.routes.App.create_app(manual_gradio_interface)
-# Wrap the ASGI app with WSGIMiddleware
 gradio_wsgi_app = WSGIMiddleware(gradio_asgi_app)
 
-# --- Create Authentication Middleware for Gradio WSGI App ---
-# This middleware checks if the user is logged in *before* passing to Gradio
-class AuthMiddleware:
-    def __init__(self, app):
-        self.app = app
+# --- Define Flask route to serve the protected Gradio WSGI app ---
+@app.route('/gradio', methods=['GET', 'POST', 'HEAD'])
+@login_required # Protect this route using Flask-Login
+def serve_gradio():
+    # Because this is within Flask, we can return the WSGI app directly.
+    # Flask/Werkzeug handles calling it with the correct environment.
+    # However, Flask expects a Response object or similar, not a raw WSGI app.
+    # We need to adapt the response generation.
 
-    def __call__(self, environ, start_response):
-        # Use Flask's session handling within the WSGI environment
-        # This requires the request context to be available, which might be tricky
-        # A simpler check might be needed, or handle auth differently.
-        # Let's try a simple check - this needs flask app context!
-        with flask_app.request_context(environ):
-            if not current_user.is_authenticated:
-                # Redirect to login page - build URL carefully
-                login_url = '/login'
-                start_response('302 Found', [('Location', login_url)])
-                return []
-        # If authenticated, proceed to the Gradio app
-        return self.app(environ, start_response)
+    # Create a Response object that delegates to the WSGI app
+    return Response(gradio_wsgi_app(request.environ, lambda status, headers: None), mimetype='text/html') # Mimetype might need adjustment
+    # A potentially cleaner way might exist using specific Werkzeug features if the above is problematic.
 
-# Apply the auth middleware *only* to the Gradio app
-protected_gradio_wsgi_app = AuthMiddleware(gradio_wsgi_app)
-
-# --- Create Main Application with Dispatcher ---
-# Dispatcher sends requests based on path prefix
-# '/' goes to the Flask app (for auth routes)
-# '/gradio' goes to the protected Gradio app
-application = DispatcherMiddleware(flask_app, {
-    '/gradio': protected_gradio_wsgi_app
-})
-
-# --- Main Entry Point (for Local Development ONLY) ---
+# --- Main Entry Point (for Gunicorn/Waitress - runs 'app') ---
 if __name__ == "__main__":
-    # Run the main 'application' dispatcher using Werkzeug's development server
-    from werkzeug.serving import run_simple
-    print("--- Starting Werkzeug Development Server with Dispatcher ---")
-    print("--- THIS IS FOR DEVELOPMENT ONLY - Use gunicorn in production ---")
+    # Run the Flask 'app' directly for local development
+    print("--- Starting Flask Development Server ---")
+    print("--- THIS IS FOR DEVELOPMENT ONLY - Use gunicorn/waitress in production ---")
     # Access via http://127.0.0.1:5000/login or http://127.0.0.1:5000/register
     # Login will redirect to http://127.0.0.1:5000/gradio
-    run_simple('0.0.0.0', 5000, application, use_debugger=True, use_reloader=True) 
+    app.run(debug=True, host='0.0.0.0', port=5000) 
