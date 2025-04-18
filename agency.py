@@ -124,14 +124,14 @@ REGISTER_TEMPLATE = '''
 @app.route('/')
 def index():
     if current_user.is_authenticated:
-        return redirect(url_for('gradio_app_mount')) # Redirect to the Gradio mount point
+        return redirect('/gradio') # Use hardcoded path
     else:
         return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('gradio_app_mount'))
+        return redirect('/gradio') # Use hardcoded path
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -141,9 +141,11 @@ def login():
             login_user(user)
             flash('Logged in successfully.')
             next_page = request.args.get('next')
-            # IMPORTANT: Ensure next_page is safe before redirecting
-            # For simplicity, redirect only to gradio mount point
-            return redirect(url_for('gradio_app_mount'))
+            # IMPORTANT: Basic safety check for next_page
+            if next_page and next_page.startswith('/'):
+                 return redirect(next_page)
+            else:
+                 return redirect('/gradio') # Use hardcoded path
         else:
             flash('Invalid username or password')
     return render_template_string(LOGIN_TEMPLATE)
@@ -151,7 +153,7 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
-        return redirect(url_for('gradio_app_mount'))
+        return redirect('/gradio') # Use hardcoded path
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -232,13 +234,15 @@ def protect_gradio_mount():
         # If it's for Gradio and user is not authenticated, redirect to login
         if not current_user.is_authenticated:
             # Pass the original path as 'next' for redirect after login
-            return redirect(url_for('login', next=request.path))
+            # Use hardcoded login path
+            login_url = f"{url_for('login')}?next={request.path}"
+            return redirect(login_url)
     # If path is not Gradio or user is authenticated, continue as normal
     pass
 
 # --- Mount Gradio App on Flask --- 
-# Use a dummy endpoint name for url_for in redirects
-app = gr.mount_gradio_app(app, manual_gradio_interface, path=GRADIO_PATH, _api_mode=True, endpoint_name_for_url_for="gradio_app_mount")
+# Remove unsupported arguments
+app = gr.mount_gradio_app(app, manual_gradio_interface, path=GRADIO_PATH)
 
 # --- Main Entry Point (for Gunicorn/Waitress - runs 'app') ---
 if __name__ == "__main__":
