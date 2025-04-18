@@ -2,15 +2,16 @@
 import os
 import sys
 import json
-import gradio as gr
+# import gradio as gr # Removed Gradio UI import
 from agency_swarm import Agency
 from agency_swarm import set_openai_key
 from dotenv import load_dotenv
 
 # --- Flask Imports ---
-from flask import Flask, request, render_template_string, redirect, url_for, flash, session, abort
+from flask import Flask, request, render_template, redirect, url_for, flash, jsonify # Added render_template, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+# Removed a2wsgi import
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -44,10 +45,10 @@ else:
 
 # --- Flask App Setup (Main App) ---
 app = Flask(__name__) # Use standard 'app' name
-app.secret_key = FLASK_SECRET_KEY # Needed for sessions
+app.secret_key = FLASK_SECRET_KEY
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login' # Redirect to 'login' view if user is not logged in
+login_manager.login_view = 'login'
 
 # --- User Management ---
 class User(UserMixin):
@@ -77,61 +78,18 @@ def load_user(user_id):
         return User(id=user_id, password_hash=user_data['password_hash'])
     return None
 
-# --- Authentication Routes (Defined on app) ---
-LOGIN_TEMPLATE = '''
-<!doctype html>
-<html>
-<head><title>Login</title></head>
-<body>
-  <h1>Login</h1>
-  {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      <ul>{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>
-    {% endif %}
-  {% endwith %}
-  <form method="post">
-    Username: <input type="text" name="username"><br>
-    Password: <input type="password" name="password"><br>
-    <input type="submit" value="Login">
-  </form>
-  <p>Don't have an account? <a href="{{ url_for('register') }}">Register here</a></p>
-</body>
-</html>
-'''
+# --- Authentication Routes (Templates replaced with file rendering) ---
 
-REGISTER_TEMPLATE = '''
-<!doctype html>
-<html>
-<head><title>Register</title></head>
-<body>
-  <h1>Register</h1>
-   {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      <ul>{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>
-    {% endif %}
-  {% endwith %}
-  <form method="post">
-    Username: <input type="text" name="username"><br>
-    Password: <input type="password" name="password"><br>
-    <input type="submit" value="Register">
-  </form>
-   <p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p>
-</body>
-</html>
-'''
-
-# Root redirects to Gradio if logged in, else to login
 @app.route('/')
+@login_required # Protect the main chat page
 def index():
-    if current_user.is_authenticated:
-        return redirect('/gradio') # Use hardcoded path
-    else:
-        return redirect(url_for('login'))
+    # Render the chat interface template
+    return render_template('chat.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect('/gradio') # Use hardcoded path
+        return redirect(url_for('index')) # Redirect to main chat page
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -141,19 +99,27 @@ def login():
             login_user(user)
             flash('Logged in successfully.')
             next_page = request.args.get('next')
-            # IMPORTANT: Basic safety check for next_page
-            if next_page and next_page.startswith('/'):
-                 return redirect(next_page)
-            else:
-                 return redirect('/gradio') # Use hardcoded path
+            # Redirect to originally requested page or main chat page
+            return redirect(next_page or url_for('index'))
         else:
             flash('Invalid username or password')
+    # Render login form from template file (create templates/login.html if needed)
+    # For now, keep inline template:
+    LOGIN_TEMPLATE = '''
+    <!doctype html><html><head><title>Login</title></head><body><h1>Login</h1>
+    {% with messages = get_flashed_messages() %}{% if messages %}<ul>{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}{% endwith %}
+    <form method="post">
+    Username: <input type="text" name="username"><br>
+    Password: <input type="password" name="password"><br>
+    <input type="submit" value="Login">
+    </form><p>Don't have an account? <a href="{{ url_for('register') }}">Register here</a></p></body></html>
+    '''
     return render_template_string(LOGIN_TEMPLATE)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
-        return redirect('/gradio') # Use hardcoded path
+        return redirect(url_for('index'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -167,6 +133,17 @@ def register():
             save_users(users_db)
             flash('Registration successful! Please login.')
             return redirect(url_for('login'))
+    # Render register form from template file (create templates/register.html if needed)
+    # For now, keep inline template:
+    REGISTER_TEMPLATE = '''
+    <!doctype html><html><head><title>Register</title></head><body><h1>Register</h1>
+    {% with messages = get_flashed_messages() %}{% if messages %}<ul>{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}{% endwith %}
+    <form method="post">
+    Username: <input type="text" name="username"><br>
+    Password: <input type="password" name="password"><br>
+    <input type="submit" value="Register">
+    </form><p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p></body></html>
+    '''
     return render_template_string(REGISTER_TEMPLATE)
 
 @app.route('/logout')
@@ -197,52 +174,39 @@ agency = Agency(
 )
 print("Agency structure created successfully.")
 
-# --- Manual Gradio Interface Setup ---
-with gr.Blocks() as manual_gradio_interface:
-    gr.Markdown("## Website Monitor Agency Chat")
-    chatbot = gr.Chatbot(height=600, type='messages')
-    msg = gr.Textbox(label="Your Message", placeholder="Enter task (e.g., monitor URL X with selector Y)")
-    clear = gr.Button("Clear Chat")
+# --- API Endpoint for Chat ---
+@app.route('/api/chat', methods=['POST'])
+@login_required # Protect the API endpoint
+def chat_api():
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
 
-    def stateless_chat_handler(message, history):
-        print(f"User message: {message}")
-        try:
-            response_text = agency.get_completion(message)
-            print(f"Agency response: {response_text}")
-            history.append({"role": "user", "content": message})
-            history.append({"role": "assistant", "content": response_text})
-            return "", history
-        except Exception as e:
-            print(f"Error during agency completion: {e}")
-            import traceback
-            tb_str = traceback.format_exc()
-            error_msg = f"An error occurred: {e}\nTraceback:\n{tb_str}"
-            history.append({"role": "user", "content": message})
-            history.append({"role": "assistant", "content": error_msg})
-            return "", history
+    data = request.get_json()
+    message = data.get('message')
 
-    msg.submit(stateless_chat_handler, [msg, chatbot], [msg, chatbot])
-    clear.click(lambda: (None, []), None, [msg, chatbot], queue=False)
+    if not message:
+        return jsonify({"error": "Missing 'message' in request body"}), 400
 
-# --- Protect Gradio Mount using before_request --- 
-GRADIO_PATH = "/gradio" # Define path constant
+    print(f"API received message from {current_user.id}: {message}")
+    try:
+        # Get completion from the agency
+        response_text = agency.get_completion(message)
+        print(f"API sending response: {response_text}")
+        return jsonify({"response": response_text})
 
-@app.before_request
-def protect_gradio_mount():
-    # Check if the request path starts with the Gradio mount path
-    if request.path.startswith(GRADIO_PATH):
-        # If it's for Gradio and user is not authenticated, redirect to login
-        if not current_user.is_authenticated:
-            # Pass the original path as 'next' for redirect after login
-            # Use hardcoded login path
-            login_url = f"{url_for('login')}?next={request.path}"
-            return redirect(login_url)
-    # If path is not Gradio or user is authenticated, continue as normal
-    pass
+    except Exception as e:
+        print(f"Error during agency completion via API: {e}")
+        import traceback
+        traceback.print_exc() # Log full traceback to server logs
+        return jsonify({"error": f"An internal error occurred: {e}"}), 500
 
-# --- Mount Gradio App on Flask --- 
-# Remove unsupported arguments
-app = gr.mount_gradio_app(app, manual_gradio_interface, path=GRADIO_PATH)
+# --- Remove Gradio Specific Code ---
+# with gr.Blocks() as manual_gradio_interface:
+#     ...
+# app = gr.mount_gradio_app(...)
+# @app.before_request
+# def protect_gradio_mount():
+#     ...
 
 # --- Main Entry Point (for Gunicorn/Waitress - runs 'app') ---
 if __name__ == "__main__":
