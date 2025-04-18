@@ -2,7 +2,7 @@
 FROM python:3.11
 
 # Add a build argument that can be changed to break the cache
-ARG FORCE_REBUILD=3 # Increment this value to force a rebuild
+ARG FORCE_REBUILD=4 # Increment this value to force a rebuild
 
 # Set environment variables to prevent Python from writing pyc files and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -25,10 +25,15 @@ COPY requirements.txt .
 # Remove the previous cache-busting ARG
 # ARG CACHEBUST=1
 
-# Install dependencies and immediately check for gunicorn in the same RUN step
+# Install dependencies from requirements.txt
 RUN echo "Forcing rebuild with arg: ${FORCE_REBUILD}" && \
-    pip install --no-cache-dir -r requirements.txt && \
-    echo "Checking for gunicorn immediately after install:" && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Explicitly install gunicorn in a separate step
+RUN pip install gunicorn
+
+# Check for gunicorn in a separate step
+RUN echo "Checking for gunicorn after separate install:" && \
     pip show -f gunicorn
 
 # Add a step to show where gunicorn's files (including scripts) were installed
