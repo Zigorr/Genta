@@ -1,6 +1,9 @@
 # Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
+# Add a build argument that can be changed to break the cache
+ARG FORCE_REBUILD=1 # Increment this value to force a rebuild
+
 # Set environment variables to prevent Python from writing pyc files and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
@@ -19,16 +22,16 @@ COPY requirements.txt .
 # If using Poetry:
 # COPY pyproject.toml poetry.lock* ./
 
-# Add a cache-busting argument (e.g., current date or a version number)
-# This ensures the RUN pip install layer is rebuilt if this line changes
-ARG CACHEBUST=1
+# Remove the previous cache-busting ARG
+# ARG CACHEBUST=1
 
 # Install dependencies
-# --no-cache-dir prevents caching which is good for image size but slower for rebuilds during dev
-RUN pip install --no-cache-dir -r requirements.txt
+# Using the ARG via echo ensures this layer rebuilds if FORCE_REBUILD changes
+RUN echo "Forcing rebuild with arg: ${FORCE_REBUILD}" && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Add a step to list the contents of the bin directory to verify gunicorn exists
-RUN ls -l /usr/local/bin
+# Remove the diagnostic ls command
+# RUN ls -l /usr/local/bin
 
 # If using Poetry:
 # RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --no-dev
