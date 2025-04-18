@@ -184,24 +184,76 @@ agency = Agency(
 )
 print("Agency structure created successfully.")
 
-# --- Gradio Interface Setup ---
-# Use launch=False to get the Gradio app object without starting a server
-# We'll let Flask manage the server
-gradio_interface = agency.demo_gradio(launch=False)
+# --- Manual Gradio Interface Setup ---
+
+def run_agency_chat(message, history):
+    # Convert Gradio history (list of tuples) to Agency Swarm format if needed,
+    # or manage history appropriately for agency.get_completion
+    # For simplicity, we'll run stateless for now, but history management
+    # might be needed for follow-up messages depending on agency.get_completion behavior.
+    print(f"User message: {message}")
+    try:
+        # NOTE: agency.get_completion might require specific history format or thread management.
+        # This is a basic example; refinement might be needed based on get_completion's exact needs.
+        response = agency.get_completion(message) # Pass the message directly
+        print(f"Agency response: {response}")
+        # Append interaction to history (modify if stateful history is needed)
+        history.append((message, response))
+        return "", history # Clear input, return updated history
+    except Exception as e:
+        print(f"Error during agency completion: {e}")
+        # Optionally return an error message to the user
+        import traceback
+        tb_str = traceback.format_exc()
+        error_msg = f"An error occurred: {e}\nTraceback:\n{tb_str}"
+        history.append((message, error_msg))
+        return "", history # Clear input, return history with error
+
+# Create Gradio Blocks interface manually
+with gr.Blocks() as manual_gradio_interface:
+    gr.Markdown("## Website Monitor Agency Chat")
+    # Addressing the UserWarning by setting type='messages'
+    chatbot = gr.Chatbot(height=600, type='messages') # Use messages format
+    msg = gr.Textbox(label="Your Message", placeholder="Enter task (e.g., monitor URL X with selector Y)")
+    clear = gr.Button("Clear Chat")
+
+    # Define submit action
+    # Inputs: textbox content, chatbot state (history)
+    # Outputs: textbox (to clear it), chatbot state (updated history)
+    # Note: For type='messages', history format is list of dicts [{'role':'user/assistant', 'content':...}]
+    # The run_agency_chat function will need adjustment if using stateful 'messages' history.
+    # Let's stick to a simpler stateless approach first by ignoring history input for agency call.
+
+    def stateless_chat_handler(message, history):
+        print(f"User message: {message}")
+        try:
+            response_text = agency.get_completion(message) # Pass message directly
+            print(f"Agency response: {response_text}")
+            # Append user and assistant messages to history
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": response_text})
+            return "", history # Clear input, return updated history
+        except Exception as e:
+            print(f"Error during agency completion: {e}")
+            import traceback
+            tb_str = traceback.format_exc()
+            error_msg = f"An error occurred: {e}\nTraceback:\n{tb_str}"
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": error_msg})
+            return "", history # Clear input, return history with error
+
+    msg.submit(stateless_chat_handler, [msg, chatbot], [msg, chatbot])
+    clear.click(lambda: (None, []), None, [msg, chatbot], queue=False)
 
 # --- Mount Gradio App on Flask ---
 @app.route('/')
 @login_required # Protect the Gradio interface
 def gradio_app():
-    # This function now needs to return the HTML/response for the Gradio app.
-    # Mounting handles this, but we need a simple view function.
-    # We will use gr.mount_gradio_app below which is the preferred way.
-    # This route definition is mainly for Flask-Login to know it's a protected endpoint.
-    # A better approach might be needed if Flask doesn't automatically serve the mount point.
-    # Let's return a simple placeholder, mounting handles the real work.
+    # Placeholder function, mounting handles the display
     return "Loading Monitoring Agency..."
 
-app = gr.mount_gradio_app(app, gradio_interface, path="/")
+# Mount the manually created interface
+app = gr.mount_gradio_app(app, manual_gradio_interface, path="/")
 
 # --- Main Entry Point (for Gunicorn/Waitress) ---
 # The Flask 'app' object is the entry point for WSGI servers
