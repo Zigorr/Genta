@@ -13,6 +13,7 @@ gunicorn>=20.0.0 # Production WSGI server
 Flask-Dance>=3 # Added for OAuth
 Flask-WTF>=1.0.0 # Or a specific version if needed
 Flask-Dance[google]>=7.0.0 # Or a specific version if needed
+Flask-Bootstrap
 
 # Database
 psycopg2-binary>=2.9.0 # PostgreSQL adapter
