@@ -397,11 +397,13 @@ def google_logged_in_handler(blueprint, token):
         # For simplicity, we'll create a new user if Google ID is not found
         # We use email as the username for OAuth users
         existing_user_by_email = get_user_by_username(email)
-        if existing_user_by_email and not existing_user_by_email[3]: # Check if existing email user is NOT already linked to Google
+        # Check if email exists AND google_id is NULL (index 3 is now google_id)
+        if existing_user_by_email and existing_user_by_email[3] is None: 
             # Optional: Link existing account? Requires careful handling.
-            # For now, let's prevent login if email exists but google_id doesn't match
-            flash("An account with this email already exists, but is not linked to this Google account. Please login using your password or register differently.", category="warning")
+            # For now, let's prevent login if email exists but google_id is not set
+            flash("An account with this email already exists, but is not linked to a Google account. Please login using your password or register differently.", category="warning")
             return redirect(url_for("login"))
+        # Check if email exists AND google_id matches the one from Google
         elif existing_user_by_email and existing_user_by_email[3] == google_user_id:
              # This case handles if get_user_by_google_id somehow failed but email lookup works
              user = User(id=existing_user_by_email[0], username=existing_user_by_email[1], password_hash=existing_user_by_email[2])

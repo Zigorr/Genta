@@ -131,14 +131,15 @@ def get_user_by_username(username):
         conn = get_db_connection()
         if not conn: return None
         cur = conn.cursor()
-        cur.execute("SELECT id, username, password_hash FROM users WHERE username = %s", (username,))
+        # Select google_id as well
+        cur.execute("SELECT id, username, password_hash, google_id FROM users WHERE username = %s", (username,))
         user_data = cur.fetchone()
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error fetching user by username: {error}", file=sys.stderr)
     finally:
         if cur: cur.close()
         if conn: return_db_connection(conn)
-    # Return tuple directly (id, username, password_hash) or None
+    # Return tuple directly (id, username, password_hash, google_id) or None
     return user_data
 
 
