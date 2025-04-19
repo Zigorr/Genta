@@ -90,15 +90,14 @@ def create_auth_blueprint(login_manager):
 @_auth_bp.route('/google/start_login')
 def google_start_login():
     session['google_action'] = 'login'
-    # Redirect to the actual Flask-Dance Google endpoint
-    # The endpoint name is 'google.login' relative to the main auth blueprint
-    return redirect(url_for("google.login")) 
+    # Redirect to the actual Flask-Dance Google endpoint using relative path
+    return redirect(url_for(".google.login")) 
 
 @_auth_bp.route('/google/start_register')
 def google_start_register():
     session['google_action'] = 'register'
-    # Redirect to the actual Flask-Dance Google endpoint
-    return redirect(url_for("google.login"))
+    # Redirect to the actual Flask-Dance Google endpoint using relative path
+    return redirect(url_for(".google.login"))
 
 # --- Authentication Routes (Defined within the Blueprint) ---
 
