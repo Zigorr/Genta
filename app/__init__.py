@@ -4,7 +4,7 @@ import sys
 import atexit
 import logging
 
-from flask import Flask, render_template # Import render_template for index route
+from flask import Flask, render_template, request # Import request for error handler
 from flask_login import LoginManager, login_required # Keep login_required for index
 from werkzeug.middleware.proxy_fix import ProxyFix
 from agency_swarm import set_openai_key
@@ -17,7 +17,8 @@ from config import config # Use the dictionary defined in config.py
 # Assuming Database, Auth, AgencySwarm are siblings to the 'app' directory
 # If they are inside 'app', change the import path
 # Import directly from database_manager again
-from Database.database_manager import init_db_pool, close_db_pool, test_db_connection
+# Use correct function names for DB pool
+from Database.database_manager import init_connection_pool, close_connection_pool, test_db_connection
 from Auth import create_auth_blueprint
 from AgencySwarm import agency_api_bp # Import the renamed blueprint export
 from UserSettings import settings_bp # Import the new blueprint
@@ -58,7 +59,7 @@ def create_app(config_name='default'):
 
     # Initialize Database within app context
     with app.app_context():
-        init_db_pool(app.config['DATABASE_URL'])
+        init_connection_pool() # Use correct function name
         test_db_connection() # Test connection on startup
         print("Database pool initialized and connection tested.")
 
@@ -104,7 +105,7 @@ def create_app(config_name='default'):
             return "An internal error occurred while loading the page.", 500
 
     # Register shutdown hook
-    atexit.register(close_db_pool)
+    atexit.register(close_connection_pool) # Use correct function name
 
     # Request Teardown
     @app.teardown_appcontext
@@ -112,7 +113,7 @@ def create_app(config_name='default'):
         # This function is called when the app context is torn down,
         # which happens after a request or when the app shuts down.
         # It's a good place to close the database pool.
-        close_db_pool()
+        close_connection_pool() # Use correct function name
         # app.logger.info("Database pool closed for app context.") # Optional: Log pool closure
 
     # Error Handling
@@ -120,7 +121,7 @@ def create_app(config_name='default'):
     def page_not_found(e):
         # You can render a template for 404 errors
         # return render_template('404.html'), 404
-        app.logger.warning(f"404 Not Found: {e} at {request.url}")
+        app.logger.warning(f"404 Not Found: {e} at {request.url}") # request needs to be imported
         return "Page Not Found", 404 # Simple text response for now
 
     return app 
