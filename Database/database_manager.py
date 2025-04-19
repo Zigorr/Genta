@@ -99,7 +99,8 @@ def init_db():
     except (Exception, psycopg2.DatabaseError) as error:
         # Handle potential error if password_hash column didn't exist to be altered
         # Or if the DROP NOT NULL failed because it was already nullable (this is harmless)
-        if hasattr(error, 'pgcode') and error.pgcode == psycopg2.errors.UndefinedColumn: # Column doesn't exist
+        # Check specific SQLSTATE code for Undefined Column (42703)
+        if hasattr(error, 'pgcode') and error.pgcode == '42703':
             print(f"Warning during schema update (column likely didn't exist for ALTER): {error}")
             if conn: conn.rollback() # Rollback the failed ALTER
             # Optionally, try adding the column if it was the missing one
