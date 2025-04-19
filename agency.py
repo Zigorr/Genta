@@ -2,14 +2,16 @@
 import os
 import sys
 import json
-import re # Import regular expression module
+import re
+import psycopg2 # Import PostgreSQL adapter
+from psycopg2 import pool # Import connection pool
 # import gradio as gr # Removed Gradio UI import
 from agency_swarm import Agency
 from agency_swarm import set_openai_key
 from dotenv import load_dotenv
 
 # --- Flask Imports ---
-from flask import Flask, request, render_template, redirect, url_for, flash, jsonify, render_template_string # Added render_template_string
+from flask import Flask, request, render_template, redirect, url_for, flash, jsonify, g # Added g for db connection storage
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 # Removed a2wsgi import
@@ -23,12 +25,60 @@ from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 
 # --- Configuration & Constants ---
 load_dotenv(override=True)
-DATA_DIR = 'data'
-USERS_FILE = os.path.join(DATA_DIR, 'users.json')
 FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "a-secure-default-secret-key-for-dev-change-me") # CHANGE FOR PRODUCTION!
+DATABASE_URL = os.getenv("DATABASE_URL") # Get Database URL from environment
 
-# --- Ensure data directory exists ---
-os.makedirs(DATA_DIR, exist_ok=True)
+# --- Database Setup ---
+# Simple connection pool
+db_pool = None
+
+def get_db_connection():
+    global db_pool
+    if db_pool is None:
+        if not DATABASE_URL:
+            print("Error: DATABASE_URL environment variable not set.")
+            sys.exit("Database configuration error.")
+        try:
+            print("Initializing database connection pool...")
+            db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
+            print("Database connection pool initialized.")
+        except (Exception, psycopg2.DatabaseError) as error:
+            print(f"Error while initializing database pool: {error}")
+            sys.exit("Database connection error.")
+
+    # Get a connection from the pool
+    conn = db_pool.getconn()
+    if not conn:
+        print("Error: Failed to get connection from pool.")
+        sys.exit("Database connection error.")
+    return conn
+
+def return_db_connection(conn):
+    if db_pool and conn:
+        db_pool.putconn(conn)
+
+def init_db():
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        print("Creating users table if it doesn't exist...")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(80) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL
+            );
+        """)
+        conn.commit()
+        print("Users table checked/created.")
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error while initializing database: {error}")
+        # Don't exit here, maybe the app can run partially or retry?
+    finally:
+        if cur: cur.close()
+        if conn: return_db_connection(conn)
 
 # --- LLM Configuration Check ---
 api_key = os.getenv("OPENAI_API_KEY")
@@ -51,35 +101,77 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# --- User Management ---
+# Initialize DB on startup
+with app.app_context():
+    init_db()
+
+# --- User Management (Database Version) ---
 class User(UserMixin):
-    def __init__(self, id, password_hash):
-        self.id = id
+    def __init__(self, id, username, password_hash):
+        self.id = id # Use database ID
+        self.username = username
         self.password_hash = password_hash
 
-def load_users():
-    if not os.path.exists(USERS_FILE):
-        return {}
+# Replaces old load_users/save_users
+def get_user_by_id(user_id):
+    conn = None
+    cur = None
+    user_data = None
     try:
-        with open(USERS_FILE, 'r') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
-        return {}
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, username, password_hash FROM users WHERE id = %s", (user_id,))
+        user_data = cur.fetchone()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error fetching user by ID: {error}")
+    finally:
+        if cur: cur.close()
+        if conn: return_db_connection(conn)
+    return user_data
 
-def save_users(users):
-    with open(USERS_FILE, 'w') as f:
-        json.dump(users, f, indent=4)
+def get_user_by_username(username):
+    conn = None
+    cur = None
+    user_data = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, username, password_hash FROM users WHERE username = %s", (username,))
+        user_data = cur.fetchone()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error fetching user by username: {error}")
+    finally:
+        if cur: cur.close()
+        if conn: return_db_connection(conn)
+    return user_data
 
-users_db = load_users()
+def add_user(username, password_hash):
+    conn = None
+    cur = None
+    success = False
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO users (username, password_hash) VALUES (%s, %s)", (username, password_hash))
+        conn.commit()
+        success = True
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error adding user: {error}")
+        if conn: conn.rollback() # Rollback on error
+    finally:
+        if cur: cur.close()
+        if conn: return_db_connection(conn)
+    return success
 
 @login_manager.user_loader
 def load_user(user_id):
-    user_data = users_db.get(user_id)
-    if user_data:
-        return User(id=user_id, password_hash=user_data['password_hash'])
+    db_user = get_user_by_id(user_id)
+    if db_user:
+        # Create User object (id, username, password_hash)
+        return User(id=db_user[0], username=db_user[1], password_hash=db_user[2])
     return None
 
-# --- Authentication Routes (Use template files) ---
+# --- Authentication Routes (Using Database) ---
 
 @app.route('/')
 @login_required
@@ -94,9 +186,10 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        user_data = users_db.get(username)
-        if user_data and check_password_hash(user_data['password_hash'], password):
-            user = User(id=username, password_hash=user_data['password_hash'])
+        db_user = get_user_by_username(username)
+        # Check if user exists and password matches hash from DB
+        if db_user and check_password_hash(db_user[2], password):
+            user = User(id=db_user[0], username=db_user[1], password_hash=db_user[2])
             login_user(user)
             flash('Logged in successfully.')
             next_page = request.args.get('next')
@@ -111,7 +204,7 @@ def register():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     if request.method == 'POST':
-        username = request.form['username'].strip() # Add strip()
+        username = request.form['username'].strip()
         password = request.form['password']
 
         # --- Password Validation --- 
@@ -130,29 +223,22 @@ def register():
             flash(error)
         # --- End Password Validation ---
         
-        elif username in users_db:
+        # --- Check if username exists in DB ---
+        elif get_user_by_username(username):
             flash('Username already exists')
-        elif not username or not password: # Should be caught by length check, but good practice
+        elif not username or not password:
              flash('Username and password cannot be empty')
         else:
-            # All checks passed, proceed with registration
+            # Hash password and add user to DB
             hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-            users_db[username] = {'password_hash': hashed_password}
-            save_users(users_db)
-            flash('Registration successful! Please login.')
-            return redirect(url_for('login'))
-            
-    # Render register form (also renders if validation fails)
-    REGISTER_TEMPLATE = '''
-    <!doctype html><html><head><title>Register</title></head><body><h1>Register</h1>
-    {% with messages = get_flashed_messages() %}{% if messages %}<ul>{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}{% endwith %}
-    <form method="post">
-    Username: <input type="text" name="username"><br>
-    Password: <input type="password" name="password"><br>
-    <input type="submit" value="Register">
-    </form><p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p></body></html>
-    '''
-    return render_template_string(REGISTER_TEMPLATE)
+            if add_user(username, hashed_password):
+                flash('Registration successful! Please login.')
+                return redirect(url_for('login'))
+            else:
+                flash('An error occurred during registration. Please try again.')
+                
+    # Render register form
+    return render_template('register.html') # Assumes templates/register.html exists
 
 @app.route('/logout')
 @login_required

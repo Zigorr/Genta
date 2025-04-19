@@ -11,6 +11,9 @@ Flask-Login>=0.5.0
 Werkzeug>=2.0.0 # For password hashing (often installed with Flask)
 gunicorn>=20.0.0 # Production WSGI server
 
+# Database
+psycopg2-binary>=2.9.0 # PostgreSQL adapter
+
 # Utility dependencies
 python-dotenv>=1.0.0
 requests>=2.0.0
