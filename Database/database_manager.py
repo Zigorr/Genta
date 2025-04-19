@@ -446,4 +446,62 @@ def reset_tokens(user_id):
         conn.rollback()
         return False
     finally:
+        if conn: release_db_connection(conn)
+
+# --- Update Functions ---
+
+def update_username(user_id, new_username):
+    """Updates the username for a given user ID."""
+    conn = get_db_connection()
+    if not conn: return False
+    sql = "UPDATE users SET username = %s WHERE id = %s"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (new_username.strip(), user_id))
+            conn.commit()
+            print(f"Username updated for user {user_id}.")
+            return True
+    except (psycopg2.UniqueViolation, sqlite3.IntegrityError) as e: # Catch unique constraint violation
+        print(f"Error updating username for user {user_id}: Username '{new_username}' likely already exists. {e}")
+        conn.rollback()
+        return False # Indicate failure specifically due to uniqueness
+    except Exception as e:
+        print(f"Error updating username for user {user_id}: {e}", file=sys.stderr)
+        conn.rollback()
+        return False # Indicate general failure
+    finally:
+        if conn: release_db_connection(conn)
+
+def update_password_hash(user_id, new_password_hash):
+    """Updates the password hash for a given user ID."""
+    conn = get_db_connection()
+    if not conn: return False
+    sql = "UPDATE users SET password_hash = %s WHERE id = %s"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (new_password_hash, user_id))
+            conn.commit()
+            print(f"Password updated for user {user_id}.")
+            return True
+    except Exception as e:
+        print(f"Error updating password for user {user_id}: {e}", file=sys.stderr)
+        conn.rollback()
+        return False
+    finally:
+        if conn: release_db_connection(conn)
+
+def get_password_hash(user_id):
+    """Fetches only the password hash for a given user ID."""
+    conn = get_db_connection()
+    if not conn: return None
+    sql = "SELECT password_hash FROM users WHERE id = %s"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (user_id,))
+            result = cur.fetchone()
+            return result[0] if result else None
+    except Exception as e:
+        print(f"Error fetching password hash for user {user_id}: {e}", file=sys.stderr)
+        return None
+    finally:
         if conn: release_db_connection(conn) 

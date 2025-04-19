@@ -3,18 +3,25 @@
 import os # Added
 import stripe # Added
 from flask import render_template, url_for, redirect, current_app, flash, request, jsonify, abort # Added request, jsonify, abort
-from flask_login import login_required, current_user
+from flask_login import login_required, current_user, logout_user # Added logout_user
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from . import settings_bp
-from Database.database_manager import get_chat_history, get_user_token_details, set_user_subscription
+from Database.database_manager import (
+    get_chat_history, get_user_token_details, set_user_subscription, 
+    update_username, update_password_hash, get_password_hash, # Added new DB functions
+    get_user_by_username # Needed for username check
+)
+# Import the new forms
+from Auth.forms import ChangeUsernameForm, ChangePasswordForm 
 
 # Configure Stripe API key on blueprint load (or app factory)
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 
-@settings_bp.route('/')
+@settings_bp.route('/', methods=['GET']) # Explicitly GET
 @login_required
 def view_settings():
-    """Displays the user settings page with account info and chat history."""
+    """Displays the user settings page with forms, account info, and chat history."""
     user_id = current_user.id
     
     # Fetch user details (token usage, subscription status)
@@ -30,11 +37,89 @@ def view_settings():
     # Get token limit from config
     token_limit = current_app.config.get('FREE_TIER_TOKEN_LIMIT', 200)
 
+    # Instantiate forms for rendering
+    change_username_form = ChangeUsernameForm()
+    change_password_form = ChangePasswordForm()
+
+    # Pass forms to the template context
     return render_template('settings.html',
                            user=current_user, 
                            user_details=user_details,
                            token_limit=token_limit,
-                           history=chat_history)
+                           history=chat_history,
+                           change_username_form=change_username_form,
+                           change_password_form=change_password_form)
+
+@settings_bp.route('/change-username', methods=['POST'])
+@login_required
+def change_username():
+    form = ChangeUsernameForm() # Instantiate form with POST data
+    if form.validate_on_submit():
+        new_username = form.username.data
+        user_id = current_user.id
+
+        # Extra check: ensure username is different
+        if new_username == current_user.username:
+            flash('New username must be different from the current one.', 'warning')
+            return redirect(url_for('settings.view_settings'))
+
+        # Check if username already exists (Database function also checks, but good for UX)
+        existing_user = get_user_by_username(new_username)
+        if existing_user:
+            flash('That username is already taken. Please choose another.', 'error')
+        else:
+            # Attempt to update username
+            success = update_username(user_id, new_username)
+            if success:
+                flash('Username successfully updated!', 'success')
+                # Note: current_user object might not update immediately in the same request
+                # Forcing re-login or fetching user again might be needed if displaying updated name right away
+            else:
+                 flash('An error occurred while updating your username. It might be taken.', 'error')
+    else:
+         # Flash form validation errors
+         for field, errors in form.errors.items():
+              for error in errors:
+                  flash(f"Error in {getattr(form, field).label.text}: {error}", 'error')
+
+    return redirect(url_for('settings.view_settings')) # Redirect back even on failure
+
+@settings_bp.route('/change-password', methods=['POST'])
+@login_required
+def change_password():
+    # Ensure user actually has a password to change
+    if not current_user.password_hash:
+         flash('Cannot change password for accounts registered via Google.', 'warning')
+         return redirect(url_for('settings.view_settings'))
+         
+    form = ChangePasswordForm() # Instantiate form with POST data
+    if form.validate_on_submit():
+        user_id = current_user.id
+        current_password_input = form.current_password.data
+        new_password = form.new_password.data
+
+        # Verify current password
+        current_hash = get_password_hash(user_id)
+        if current_hash and check_password_hash(current_hash, current_password_input):
+            # Hash the new password
+            new_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+            # Update the database
+            success = update_password_hash(user_id, new_hash)
+            if success:
+                 flash('Password successfully updated! Please log in again for security.', 'success')
+                 logout_user() # Log out user after password change
+                 return redirect(url_for('auth.login'))
+            else:
+                 flash('An error occurred while updating your password.', 'error')
+        else:
+            flash('Incorrect current password.', 'error')
+    else:
+         # Flash form validation errors
+         for field, errors in form.errors.items():
+              for error in errors:
+                  flash(f"Error in {getattr(form, field).label.text}: {error}", 'error')
+
+    return redirect(url_for('settings.view_settings'))
 
 @settings_bp.route('/subscribe')
 @login_required

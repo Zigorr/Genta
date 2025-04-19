@@ -19,20 +19,21 @@ import sys
 # Assumes Database module is at the same level as Auth
 # Import directly from database_manager again
 from Database.database_manager import (
-    User, get_user_by_id, get_user_by_username, add_user, get_user_by_google_id
+    User, get_user_by_id, get_user_by_username, add_user, get_user_by_google_id, update_username
 )
 
 # Import Forms - Assuming they are in Auth/forms.py
 try:
-    from .forms import LoginForm, RegistrationForm
+    from .forms import LoginForm, RegistrationForm, SetUsernameForm
 except ImportError:
     # Handle case where forms.py might not exist or has different naming
     # Provide default empty forms to prevent crashes, but log a warning.
     # Ideally, create forms.py if it's missing.
-    print("WARNING: Could not import LoginForm or RegistrationForm from Auth.forms. Check if forms.py exists and defines these classes.", file=sys.stderr)
+    print("WARNING: Could not import LoginForm, RegistrationForm, or SetUsernameForm from Auth.forms. Check if forms.py exists and defines these classes.", file=sys.stderr)
     from wtforms import Form
     class LoginForm(Form): pass
     class RegistrationForm(Form): pass
+    class SetUsernameForm(Form): pass
 
 
 # Define the Blueprint for authentication routes
@@ -190,87 +191,64 @@ def logout():
 
 # Helper function to process the user data after callback
 def _process_google_login(google_info):
-    """Processes user info obtained from Google, finds/creates user, returns redirect."""
+    """Processes user info. If new, redirects to set username, else logs in."""
     google_user_id = str(google_info["sub"])
     email = google_info.get("email")
-    action = session.pop('google_action', 'login') # Get and remove action, default to login
+    action = session.pop('google_action', 'login')
 
     if not email:
         flash("Google account does not have an email associated.", category="error")
         return redirect(url_for(".login"))
 
-    # 1. Check if user exists by Google ID
-    # user_data is (id, username, pwd_hash, google_id, tokens, subscribed, last_reset)
     user_data = get_user_by_google_id(google_user_id)
     user = None
     login_message = ""
     login_category = "success"
 
     if user_data:
-        # Case 1: Google account already linked - Correctly unpack all elements
+        # Case 1: Google account already linked - Log them in
         user = User(id=user_data[0], username=user_data[1], password_hash=user_data[2],
                     google_id=user_data[3], tokens_used=user_data[4], is_subscribed=user_data[5],
-                    last_token_reset=user_data[6]) # Added last_token_reset
+                    last_token_reset=user_data[6])
         print(f"Found existing user by Google ID: {user.id}")
-        
-        # *** Check intent if user exists ***
         if action == 'register':
             flash("You already have an account linked with Google. Please sign in.", category="info")
             return redirect(url_for(".login"))
         else:
             login_message = "Welcome back! Logged in with Google."
-
     else:
-        # 2. Check if user exists by email (but not linked to this Google ID)
-        # existing_user_by_email is (id, username, pwd_hash, google_id, tokens, subscribed, last_reset)
         existing_user_by_email = get_user_by_username(email)
         if existing_user_by_email:
-            # Check if the existing email account has NO google ID linked
-            if existing_user_by_email[3] is None:
-                 # Case 2: Manual account with this email exists
-                flash("An account already exists with this email, but it's not linked to Google. Please log in with your password.", category="warning")
-                return redirect(url_for(".login"))
-            # Edge case: email matches but google ID doesn't? Should be rare.
-            else:
-                flash("Account email matches, but Google ID does not. Please contact support or log in manually.", category="error")
-                return redirect(url_for(".login"))
+            # Case 2: Manual account with this email exists - Redirect to login
+            flash("An account already exists with this email, but it's not linked to Google. Please log in with your password.", category="warning")
+            return redirect(url_for(".login"))
         else:
-            # 3. Create new user if neither Google ID nor email exists
-            print(f"Creating new user for Google ID {google_user_id} with email {email}")
+            # Case 3: Create new user record, then REDIRECT TO SET USERNAME
+            print(f"Creating new user record for Google ID {google_user_id} with email {email}")
+            # Add user with email as temporary username, null password, and google_id
             success, new_user_id = add_user(username=email, google_id=google_user_id)
             if success:
-                # Fetch the full new user data including the default last_token_reset
-                new_db_user = get_user_by_id(new_user_id)
-                if new_db_user:
-                     user = User(id=new_db_user[0], username=new_db_user[1], password_hash=new_db_user[2],
-                                 google_id=new_db_user[3], tokens_used=new_db_user[4], is_subscribed=new_db_user[5],
-                                 last_token_reset=new_db_user[6]) # Added last_token_reset
-                     print(f"New user created and loaded: ID {new_user_id}")
-                     login_message = "Account created and logged in with Google."
-                else:
-                     # Should not happen, but handle error if user can't be fetched immediately after creation
-                     print(f"ERROR: Could not fetch newly created user {new_user_id}")
-                     flash("Failed to finalize user creation after Google sign-up.", category="error")
-                     return redirect(url_for(".login"))
+                print(f"New user record created with ID: {new_user_id}. Redirecting to set username.")
+                # Store ID in session to link it after username is set
+                session['pending_google_user_id'] = new_user_id
+                flash('Welcome! Please choose a username for your new account.', 'info')
+                return redirect(url_for('auth.set_google_username')) # Redirect to new route
             else:
                 flash("Failed to create a new user account from Google profile.", category="error")
                 return redirect(url_for(".login"))
 
-    # Log in user and redirect (if user object was created/found and not redirected earlier)
+    # Log in user only if user object was created/found for existing users
     if user:
-        login_user(user) # Consider adding remember=True if desired
-        if login_message: # Only flash if we didn't redirect earlier
+        login_user(user)
+        if login_message:
              flash(login_message, category=login_category)
         next_url = session.pop('_flashed_next_url', None) or url_for('index')
         return redirect(next_url)
-    elif action != 'register': # Only show generic error if it wasn't a failed registration redirect
-        # Fallback if user object wasn't created (and we didn't redirect earlier)
+    elif action != 'register':
         flash("Could not log you in with Google.", category="error")
         return redirect(url_for(".login"))
     else:
-        # If action was 'register' and we got here without a user object,
-        # it means we already flashed the 'account exists' message and redirected.
-        # Do nothing further, the redirect is already handled.
+        # Failed registration attempt already handled
         pass
 
 # NEW: Explicit callback route
@@ -314,8 +292,49 @@ def google_callback():
         flash("An error occurred during Google login. Please try again.", category="error")
         return redirect(url_for(".login"))
 
-# --- Authentication Routes (Defined within the Blueprint) ---
-# ... (login, register, logout routes)
+# NEW Route for setting username after Google signup
+@_auth_bp.route('/set-google-username', methods=['GET', 'POST'])
+def set_google_username():
+    # Check if a user ID is pending from Google OAuth
+    if 'pending_google_user_id' not in session:
+        flash('Invalid access to set username page.', 'warning')
+        return redirect(url_for('.login'))
+
+    user_id = session['pending_google_user_id']
+    form = SetUsernameForm()
+
+    if form.validate_on_submit():
+        new_username = form.username.data
+        
+        # Attempt to update the username for the pending user ID
+        # The form validator should have already checked for uniqueness,
+        # but update_username also handles potential race conditions.
+        success = update_username(user_id, new_username)
+        
+        if success:
+            # Username set successfully, clear the session flag
+            session.pop('pending_google_user_id', None)
+            
+            # Fetch the full user data to log them in
+            db_user = get_user_by_id(user_id)
+            if db_user:
+                user = User(id=db_user[0], username=db_user[1], password_hash=db_user[2],
+                            google_id=db_user[3], tokens_used=db_user[4], is_subscribed=db_user[5],
+                            last_token_reset=db_user[6])
+                login_user(user) # Log the user in
+                flash(f'Username set to "{new_username}" and logged in successfully!', 'success')
+                return redirect(url_for('index')) # Redirect to main app page
+            else:
+                # Should not happen, but handle case where user disappeared
+                flash('Account setup complete, but failed to log you in automatically. Please try logging in.', 'warning')
+                return redirect(url_for('.login'))
+        else:
+            # update_username returns False if username is taken (or other DB error)
+            flash('That username is already taken or an error occurred. Please choose another.', 'error')
+            # Fall through to re-render form with errors
+
+    # Render the form on GET request or if POST validation failed
+    return render_template('set_username.html', form=form)
 
 
 # REMOVED Signal Handlers
