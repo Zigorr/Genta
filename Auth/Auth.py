@@ -194,15 +194,22 @@ def _process_google_login(google_info):
 def google_callback():
     print("DEBUG: Entered /google/callback route")
     try:
-        # Manually complete the authorization and get token
-        token = google.authorized_response()
-        if not token:
-            flash("Failed to authorize with Google (no token). Try again.", category="error")
-            print("ERROR: No token received from google.authorized_response()")
-            return redirect(url_for(".login"))
-        print(f"DEBUG: Received token: {token}")
+        # Check if authorized and retrieve token from session proxy
+        if not google.authorized:
+            flash("Authorization with Google failed or was denied.", category="error")
+            print("ERROR: google.authorized is False in callback.")
+            return redirect(url_for('.login'))
 
-        # Fetch user info using the token
+        token = google.token # Access the token directly
+        if not token:
+            # This case might be redundant if google.authorized is False, but check defensively
+            flash("Failed to retrieve Google token after authorization.", category="error")
+            print("ERROR: google.token is None/empty after authorization.")
+            return redirect(url_for('.login'))
+
+        print(f"DEBUG: Retrieved token: {token}")
+
+        # Fetch user info using the token (google object acts as the session)
         resp = google.get("/oauth2/v3/userinfo")
         if not resp.ok:
             msg = "Failed to fetch user info from Google."
