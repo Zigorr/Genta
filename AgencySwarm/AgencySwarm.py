@@ -1,4 +1,4 @@
-# AgencySwarm/__init__.py
+# AgencySwarm/AgencySwarm.py
 
 import sys
 import traceback
@@ -9,12 +9,14 @@ from flask_login import login_required, current_user
 from agency_swarm import Agency
 
 # Import agent classes (adjust path if needed, assumes they are at the root)
-# Change to direct import if modules are siblings
+# If agents are moved into AgencySwarm folder, change imports
 from MonitorCEO.MonitorCEO import MonitorCEO
 from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 
-# Import the blueprint from the main module file
-from .AgencySwarm import _api_bp as api_bp
+# Define the Blueprint for API routes related to the agency
+# Using url_prefix='/api' will make routes like /api/chat
+# Renamed to _api_bp internally, expose via __init__.py
+_api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 # --- Agency Setup ---
 # Global variable to hold the initialized agency instance
@@ -65,7 +67,7 @@ def create_agency():
 
 # --- API Endpoint(s) ---
 
-@api_bp.route('/chat', methods=['POST'])
+@_api_bp.route('/chat', methods=['POST'])
 @login_required # Protect the API endpoint
 def chat_api():
     agency = create_agency() # Get or create the agency instance
