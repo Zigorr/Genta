@@ -2,6 +2,11 @@
 
 {% block title %}Subscribe{% endblock %}
 
+{% block head %}
+    {# Add Stripe.js script #}
+    <script src="https://js.stripe.com/v3/"></script>
+{% endblock %}
+
 {% block content %}
 <div class="container">
     <h2>Subscription Plans</h2>
@@ -13,21 +18,71 @@
         
         <hr>
 
-        <p><strong>Simulation Only:</strong> Clicking the button below will simulate a successful payment and activate your subscription.</p>
-        <a href="{{ url_for('settings.confirm_subscription') }}" class="button button-primary">Simulate Successful Payment ($9.99)</a>
-        <p><small>Note: This is for demonstration purposes only. No actual payment will be processed.</small></p>
-        
-        {# Placeholder for Real Payment Integration (e.g., Stripe) #}
-        <!-- 
-        <form action="/create-checkout-session" method="POST">
-          <button type="submit" id="checkout-button">Checkout with Stripe</button>
-        </form> 
-        -->
+        {# Replace simulation button with real checkout button #}
+        <button id="checkout-button" class="button button-primary">Subscribe with Stripe ($9.99)</button>
+        <div id="error-message" style="color: red; margin-top: 10px;"></div>
+
+        {# Removed simulation link #}
+        {# <a href="{{ url_for('settings.confirm_subscription') }}" class="button button-primary">Simulate Successful Payment ($9.99)</a> #}
+        {# <p><small>Note: This is for demonstration purposes only. No actual payment will be processed.</small></p> #}
+
     </div>
 
     <a href="{{ url_for('settings.view_settings') }}" class="button button-secondary">Back to Settings</a>
 
 </div>
+
+<script>
+  // Initialize Stripe.js with your publishable key passed from the route
+  const stripe = Stripe('{{ stripe_publishable_key }}'); 
+  const checkoutButton = document.getElementById('checkout-button');
+  const errorMessageDiv = document.getElementById('error-message');
+
+  if (checkoutButton) {
+      checkoutButton.addEventListener('click', async function () {
+          errorMessageDiv.textContent = ''; // Clear previous errors
+          checkoutButton.disabled = true; // Disable button
+          checkoutButton.textContent = 'Processing...';
+
+          try {
+              // Call your backend to create the Checkout Session
+              const response = await fetch("{{ url_for('settings.create_checkout_session') }}", {
+                  method: 'POST',
+                  headers: {
+                      'Content-Type': 'application/json',
+                      // Add CSRF token if needed
+                  }
+              });
+
+              if (!response.ok) {
+                  const errorData = await response.json();
+                  throw new Error(errorData.error || 'Failed to create checkout session.');
+              }
+
+              const session = await response.json();
+
+              // Redirect to Stripe Checkout
+              const { error } = await stripe.redirectToCheckout({
+                  sessionId: session.sessionId
+              });
+
+              // If `redirectToCheckout` fails due to a browser issue or configuration error,
+              // display the error message here.
+              if (error) {
+                  console.error("Stripe redirect error:", error);
+                  throw new Error(error.message || 'Could not redirect to payment page.');
+              }
+          } catch (error) {
+              console.error("Checkout error:", error);
+              errorMessageDiv.textContent = error.message;
+              checkoutButton.disabled = false; // Re-enable button on error
+              checkoutButton.textContent = 'Subscribe with Stripe ($9.99)';
+          }
+      });
+  } else {
+      console.error("Checkout button not found.");
+  }
+</script>
 
 {# Add specific styles if needed #}
 <style>

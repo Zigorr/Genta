@@ -27,3 +27,6 @@ beautifulsoup4>=4.0.0 # For HTML parsing
 # selenium-stealth
 # webdriver-manager
 # playwright 
+
+# Payment Processing
+stripe>=8.0.0 # Or a more recent version 

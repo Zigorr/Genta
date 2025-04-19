@@ -38,6 +38,12 @@ class Config:
     FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 200))
     TOKEN_RESET_INTERVAL_MINUTES = int(os.getenv("TOKEN_RESET_INTERVAL_MINUTES", 5))
 
+    # Stripe Configuration
+    STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY')
+    STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY')
+    STRIPE_PRICE_ID = os.environ.get('STRIPE_PRICE_ID') # Your $9.99/month Price ID
+    STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET') # For verifying webhooks
+
     @staticmethod
     def init_app(app):
         # Perform any initialization based on config if needed
@@ -51,6 +57,12 @@ class Config:
             # Optionally raise an exception or exit
         if not Config.GOOGLE_OAUTH_CLIENT_ID or not Config.GOOGLE_OAUTH_CLIENT_SECRET:
              print("WARNING: GOOGLE_OAUTH_CLIENT_ID or GOOGLE_OAUTH_CLIENT_SECRET not set. Google Login will fail.", file=os.sys.stderr)
+        if not Config.STRIPE_SECRET_KEY or not Config.STRIPE_PUBLISHABLE_KEY:
+             print("WARNING: Stripe API keys not fully configured. Payment integration will fail.", file=os.sys.stderr)
+        if not Config.STRIPE_PRICE_ID:
+             print("WARNING: Stripe Price ID not configured. Subscription checkout will fail.", file=os.sys.stderr)
+        if not Config.STRIPE_WEBHOOK_SECRET:
+             print("WARNING: Stripe Webhook Secret not configured. Subscription confirmation via webhook will fail.", file=os.sys.stderr)
 
         if Config.OAUTHLIB_INSECURE_TRANSPORT:
             os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
