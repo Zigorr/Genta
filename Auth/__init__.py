@@ -2,7 +2,8 @@
 
 import os
 from flask import (
-    Blueprint, request, render_template, redirect, url_for, flash, session
+    Blueprint, request, render_template, redirect, url_for, flash, session,
+    current_app # Import current_app to access config
 )
 from flask_login import (
     LoginManager, login_user, logout_user, login_required, current_user
@@ -13,7 +14,7 @@ from flask_dance.consumer import oauth_authorized, oauth_error
 
 # Import database functions and User model from the Database module
 # Assumes Database module is one level up
-from ..Database.database_manager import (
+from Database.database_manager import (
     User, get_user_by_id, get_user_by_username, add_user, get_user_by_google_id
 )
 
@@ -53,8 +54,9 @@ def create_auth_blueprint(login_manager):
     # --- Google OAuth Setup within Auth ---
     # Create Google OAuth blueprint (specific to this auth module)
     google_bp = make_google_blueprint(
-        client_id=os.getenv("GOOGLE_OAUTH_CLIENT_ID"),
-        client_secret=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+        # Get config from current_app instead of os.getenv
+        client_id=current_app.config.get("GOOGLE_OAUTH_CLIENT_ID"),
+        client_secret=current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET"),
         scope=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
         redirect_to="auth.google_logged_in_handler", # Use blueprint name
         login_url="/google", # Relative to blueprint prefix
@@ -131,7 +133,7 @@ def logout():
 
 # Note: 'redirect_to' in make_google_blueprint points here now
 @auth_bp.route("/google_logged_in") # No prefix needed, handled by blueprint
-@oauth_authorized.connect_via(auth_bp.blueprints['google']) # Connect via nested blueprint
+@oauth_authorized.connect_via(auth_bp.blueprints['google'])
 def google_logged_in_handler(blueprint, token):
     if not token:
         flash("Failed to log in with Google.", category="error")
@@ -186,7 +188,7 @@ def google_logged_in_handler(blueprint, token):
         return redirect(url_for(".login"))
 
 
-@oauth_error.connect_via(auth_bp.blueprints['google']) # Connect via nested blueprint
+@oauth_error.connect_via(auth_bp.blueprints['google'])
 def google_oauth_error(blueprint, error, error_description=None, error_uri=None):
     msg = (
         "OAuth error from {name}! "

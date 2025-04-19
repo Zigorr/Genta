@@ -3,12 +3,14 @@ import os
 import sys
 import psycopg2
 from psycopg2 import pool
+from flask import current_app # Import current_app
 from flask_login import UserMixin # Needed for the User class
-from dotenv import load_dotenv
+# Removed load_dotenv, config loaded by app factory
+# from dotenv import load_dotenv
 
 # --- Configuration & Constants ---
-load_dotenv(override=True) # Load .env from the project root
-DATABASE_URL = os.getenv("DATABASE_URL")
+# load_dotenv(override=True) # Removed
+# DATABASE_URL = os.getenv("DATABASE_URL") # Removed
 
 # --- Database Setup ---
 db_pool = None
@@ -17,19 +19,23 @@ def get_db_connection():
     """Gets a connection from the pool."""
     global db_pool
     if db_pool is None:
-        if not DATABASE_URL:
-            print("Error: DATABASE_URL environment variable not set in database_manager.", file=sys.stderr)
-            # Raising an exception might be better in a real app
-            return None # Or raise an exception
+        # Get DATABASE_URL from Flask app config
+        database_url = current_app.config.get('DATABASE_URL')
+        if not database_url:
+            # Log error using current_app logger if available, or print
+            log_msg = "Error: DATABASE_URL not found in Flask app configuration."
+            try: current_app.logger.error(log_msg)
+            except RuntimeError: print(log_msg, file=sys.stderr)
+            return None
         try:
             print("Initializing database connection pool...")
-            # Use DATABASE_URL directly
-            db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
+            db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=database_url)
             print("Database connection pool initialized.")
         except (Exception, psycopg2.DatabaseError) as error:
-            print(f"Error while initializing database pool: {error}", file=sys.stderr)
-            # Raising an exception might be better in a real app
-            return None # Or raise an exception
+            log_msg = f"Error while initializing database pool: {error}"
+            try: current_app.logger.error(log_msg)
+            except RuntimeError: print(log_msg, file=sys.stderr)
+            return None
 
     # Get a connection from the pool
     try:

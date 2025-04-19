@@ -9,9 +9,9 @@ from flask_login import login_required, current_user
 from agency_swarm import Agency
 
 # Import agent classes (adjust path if needed, assumes they are at the root)
-# If agents are moved into AgencySwarm folder, change imports
-from ..MonitorCEO.MonitorCEO import MonitorCEO
-from ..WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
+# Change to direct import if modules are siblings
+from MonitorCEO.MonitorCEO import MonitorCEO
+from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 
 # Define the Blueprint for API routes related to the agency
 # Using url_prefix='/api' will make routes like /api/chat
@@ -38,7 +38,8 @@ def create_agency():
                     monitor_ceo,
                     [monitor_ceo, monitor_worker],
                 ],
-                shared_instructions='../agency_manifesto.md', # Path relative to AgencySwarm dir
+                # Check path relative to project root where app runs
+                shared_instructions='agency_manifesto.md',
             )
             print("Agency structure created successfully.")
 
