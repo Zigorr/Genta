@@ -68,7 +68,8 @@ def create_agency():
 
 # --- API Endpoint(s) ---
 
-@_api_bp.route('/chat', methods=['POST'])
+# Add an explicit, unique endpoint name
+@_api_bp.route('/chat', methods=['POST'], endpoint='agency_chat')
 @login_required # Protect the API endpoint
 def chat_api():
     agency = create_agency() # Get or create the agency instance
