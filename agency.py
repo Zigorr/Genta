@@ -16,19 +16,21 @@ from werkzeug.middleware.proxy_fix import ProxyFix # Import ProxyFix
 # from flask_dance.contrib.google import make_google_blueprint, google
 # from flask_dance.consumer import oauth_authorized, oauth_error
 
-# Agency Swarm Imports
-from agency_swarm import Agency
-from agency_swarm import set_openai_key
+# Agency Swarm Imports REMOVED - Handled in AgencySwarm module
+# from agency_swarm import Agency
+from agency_swarm import set_openai_key # Keep set_openai_key here for initial check
 from dotenv import load_dotenv
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import local modules
-from MonitorCEO.MonitorCEO import MonitorCEO
-from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
-from Database.database_manager import init_db, close_db_pool, User # Only User needed here potentially for type hints, others used in Auth
-from Auth import create_auth_blueprint # Import the blueprint factory
+# Removed direct agent/agency imports
+# from MonitorCEO.MonitorCEO import MonitorCEO
+# from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
+from Database.database_manager import init_db, close_db_pool, User
+from Auth import create_auth_blueprint
+from AgencySwarm import api_bp as agency_api_bp # Import the api blueprint
 
 # --- Configuration & Constants ---
 load_dotenv(override=True)
@@ -71,8 +73,11 @@ login_manager.init_app(app)
 # login_manager.login_view = 'login' # Moved to create_auth_blueprint
 
 # --- Create and Register Auth Blueprint ---
-auth_bp = create_auth_blueprint(login_manager) # Pass login_manager
-app.register_blueprint(auth_bp) # Register the auth blueprint
+auth_bp = create_auth_blueprint(login_manager)
+app.register_blueprint(auth_bp)
+
+# --- Register Agency API Blueprint ---
+app.register_blueprint(agency_api_bp)
 
 # --- Database Initialization ---
 with app.app_context():
@@ -114,50 +119,30 @@ def index():
     # Render the main chat interface template
     return render_template('chat.html')
 
-# --- Instantiate Agents & Agency (Keep in main app) ---
-print("Initializing agents...")
-try:
-    monitor_ceo = MonitorCEO()
-    monitor_worker = WebsiteMonitor()
-    print("Agents initialized successfully.")
-except Exception as e:
-    print(f"Error initializing agents: {e}", file=sys.stderr)
-    sys.exit(1)
+# --- Instantiate Agents & Agency (REMOVED - Handled in AgencySwarm module) ---
+# print("Initializing agents...")
+# try:
+#     monitor_ceo = MonitorCEO()
+#     monitor_worker = WebsiteMonitor()
+#     print("Agents initialized successfully.")
+# except Exception as e:
+#     print(f"Error initializing agents: {e}", file=sys.stderr)
+#     sys.exit(1)
+#
+# print("Creating agency structure...")
+# agency = Agency(
+#     agency_chart=[
+#         monitor_ceo,
+#         [monitor_ceo, monitor_worker],
+#     ],
+#     shared_instructions='agency_manifesto.md', # Make sure this file exists or remove
+# )
+# print("Agency structure created successfully.")
 
-print("Creating agency structure...")
-agency = Agency(
-    agency_chart=[
-        monitor_ceo,
-        [monitor_ceo, monitor_worker],
-    ],
-    shared_instructions='agency_manifesto.md', # Make sure this file exists or remove
-)
-print("Agency structure created successfully.")
-
-# --- API Endpoint for Chat (Keep in main app) ---
-@app.route('/api/chat', methods=['POST'])
-@login_required # Protect the API endpoint
-def chat_api():
-    if not request.is_json:
-        return jsonify({"error": "Request must be JSON"}), 400
-
-    data = request.get_json()
-    message = data.get('message')
-
-    if not message:
-        return jsonify({"error": "Missing 'message' in request body"}), 400
-
-    print(f"API received message from user {current_user.id}: {message}") # Use current_user
-    try:
-        response_text = agency.get_completion(message)
-        print(f"API sending response: {response_text}")
-        return jsonify({"response": response_text})
-
-    except Exception as e:
-        print(f"Error during agency completion via API: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc() # Log full traceback to server logs
-        return jsonify({"error": f"An internal error occurred: {e}"}), 500
+# --- API Endpoint for Chat (REMOVED - Handled in AgencySwarm blueprint) ---
+# @app.route('/api/chat', methods=['POST'])
+# @login_required # Protect the API endpoint
+# def chat_api(): ...
 
 # --- Main Entry Point --- (Keep in main app)
 if __name__ == "__main__":
