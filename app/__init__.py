@@ -4,7 +4,7 @@ import sys
 import atexit
 import logging
 
-from flask import Flask, render_template, request # Import request for error handler
+from flask import Flask, render_template, request # Keep request import here
 from flask_login import LoginManager, login_required # Keep login_required for index
 from werkzeug.middleware.proxy_fix import ProxyFix
 from agency_swarm import set_openai_key
@@ -18,7 +18,8 @@ from config import config # Use the dictionary defined in config.py
 # If they are inside 'app', change the import path
 # Import directly from database_manager again
 # Use correct function names for DB pool
-from Database.database_manager import init_connection_pool, close_connection_pool, test_db_connection
+# Removed test_db_connection as it doesn't exist
+from Database.database_manager import init_connection_pool, close_connection_pool
 from Auth import create_auth_blueprint
 from AgencySwarm import agency_api_bp # Import the renamed blueprint export
 from UserSettings import settings_bp # Import the new blueprint
@@ -60,8 +61,8 @@ def create_app(config_name='default'):
     # Initialize Database within app context
     with app.app_context():
         init_connection_pool() # Use correct function name
-        test_db_connection() # Test connection on startup
-        print("Database pool initialized and connection tested.")
+        # test_db_connection() # Removed call to non-existent function
+        print("Database pool initialized.") # Simplified message
 
     # Register blueprints
     auth_bp = create_auth_blueprint(login_manager) # Pass login_manager
@@ -119,9 +120,10 @@ def create_app(config_name='default'):
     # Error Handling
     @app.errorhandler(404)
     def page_not_found(e):
+        from flask import request # Import request explicitly here for clarity/linter
         # You can render a template for 404 errors
         # return render_template('404.html'), 404
-        app.logger.warning(f"404 Not Found: {e} at {request.url}") # request needs to be imported
+        app.logger.warning(f"404 Not Found: {e} at {request.url}") 
         return "Page Not Found", 404 # Simple text response for now
 
     return app 
