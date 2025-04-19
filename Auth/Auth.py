@@ -1,7 +1,7 @@
 # Auth/Auth.py
 
 import os
-import re # Added import for regex in register
+import re # Moved import re to top level
 import traceback # Added import for exception logging
 from flask import (
     Blueprint, request, render_template, redirect, url_for, flash, session,
@@ -106,13 +106,17 @@ def register():
         password = request.form['password']
 
         # Add regex import if needed here or at top level
-        import re
+        # import re # Removed from here
         error = None
+        # Check length
         if len(password) < 8:
             error = 'Password must be at least 8 characters long.'
-        elif not re.search(r"[A-Z]", password): # Ensure regex is available
+        # Check for uppercase letter
+        elif not re.search(r"[A-Z]", password):
             error = 'Password must contain at least one uppercase letter.'
-        # ... (rest of password validation) ...
+        # Check for numeral
+        elif not re.search(r"[0-9]", password): # Or use \d
+            error = 'Password must contain at least one numeral.'
 
         if error:
             flash(error)
