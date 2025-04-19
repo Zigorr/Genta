@@ -25,6 +25,8 @@
         #user-nav { display: flex; align-items: center; }
         #user-nav a { text-decoration: none; color: #007bff; margin-left: 15px; }
         #user-nav a:hover { text-decoration: underline; }
+        .button-subscribe { background-color: #17a2b8; } /* Teal color for subscribe */
+        .button-subscribe:hover { background-color: #138496; }
     </style>
 </head>
 <body>
@@ -113,9 +115,12 @@
                 if (response.status === 403 && data.limit_reached === true) {
                     // --- Handle Token Limit --- 
                     addMessage('system-message error', data.message);
+                    // Show the subscribe section with a LINK styled as a button
+                    // Construct the URL manually as url_for isn't available directly here
+                    const subscribeUrl = '/settings/subscribe'; // Assumes settings_bp url_prefix is '/settings'
                     subscribeSection.innerHTML = `
                         <p>If you enjoyed the service you can subscribe to our service</p>
-                        <button onclick="handleSubscribeClick()">Subscribe</button>
+                        <a href="${subscribeUrl}" class="button button-subscribe">Subscribe</a>
                     `;
                     subscribeSection.style.display = 'block';
                 } else if (!response.ok) {
