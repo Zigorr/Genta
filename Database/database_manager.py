@@ -77,7 +77,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
                 username VARCHAR(80) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NOT NULL
+                password_hash VARCHAR(255) NULL, -- Allow NULL for OAuth users
+                google_id VARCHAR(255) UNIQUE NULL -- Added for Google OAuth
             );
         """)
         conn.commit()
@@ -141,16 +142,40 @@ def get_user_by_username(username):
     return user_data
 
 
-def add_user(username, password_hash):
-    """Adds a new user to the database."""
+def get_user_by_google_id(google_id):
+    """Fetches a user from the database by their Google ID."""
+    conn = None
+    cur = None
+    user_data = None
+    try:
+        conn = get_db_connection()
+        if not conn: return None
+        cur = conn.cursor()
+        # Select all needed fields for the User object
+        cur.execute("SELECT id, username, password_hash FROM users WHERE google_id = %s", (google_id,))
+        user_data = cur.fetchone()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error fetching user by Google ID: {error}", file=sys.stderr)
+    finally:
+        if cur: cur.close()
+        if conn: return_db_connection(conn)
+    return user_data
+
+
+def add_user(username, password_hash=None, google_id=None):
+    """Adds a new user to the database. Can handle regular or OAuth users."""
     conn = None
     cur = None
     success = False
+    new_user_id = None # To return the ID of the newly created user
     try:
         conn = get_db_connection()
-        if not conn: return False
+        if not conn: return False, None
         cur = conn.cursor()
-        cur.execute("INSERT INTO users (username, password_hash) VALUES (%s, %s)", (username, password_hash))
+        # Use RETURNING id to get the new user's ID
+        cur.execute("INSERT INTO users (username, password_hash, google_id) VALUES (%s, %s, %s) RETURNING id",
+                    (username, password_hash, google_id))
+        new_user_id = cur.fetchone()[0] # Get the returned ID
         conn.commit()
         success = True
     except (Exception, psycopg2.DatabaseError) as error:
@@ -159,4 +184,4 @@ def add_user(username, password_hash):
     finally:
         if cur: cur.close()
         if conn: return_db_connection(conn)
-    return success 
+    return success, new_user_id # Return success status and the new user's ID 

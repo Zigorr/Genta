@@ -17,6 +17,11 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from werkzeug.security import generate_password_hash, check_password_hash
 # Removed a2wsgi import
 
+# Flask-Dance imports
+from flask_dance.contrib.google import make_google_blueprint, google
+from flask_dance.consumer import oauth_authorized, oauth_error
+from flask import session # Import Flask session
+
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -26,6 +31,7 @@ from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 
 # Import database functions
 from Database.database_manager import init_db, close_db_pool, User, get_user_by_id, get_user_by_username, add_user
+from Database.database_manager import get_user_by_google_id
 
 # --- Configuration & Constants ---
 load_dotenv(override=True)
@@ -102,6 +108,30 @@ else:
 # --- Flask App Setup (Main App) ---
 app = Flask(__name__) # Use standard 'app' name
 app.secret_key = FLASK_SECRET_KEY
+
+# Configure session timeout (5 minutes of inactivity)
+from datetime import timedelta
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=5)
+app.config['SESSION_PERMANENT'] = True
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True # Default, but explicit is good
+
+# OAuth Configuration
+app.config["GOOGLE_OAUTH_CLIENT_ID"] = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+app.config["GOOGLE_OAUTH_CLIENT_SECRET"] = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+# For local testing over http:
+if os.getenv("OAUTHLIB_INSECURE_TRANSPORT") == "1":
+    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    print("WARNING: OAUTHLIB_INSECURE_TRANSPORT enabled for local HTTP testing.")
+
+# Create Google OAuth blueprint
+google_bp = make_google_blueprint(
+    scope=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
+    redirect_to="google_logged_in_handler", # Redirect to a custom handler after auth
+    login_url="/login/google", # Optional: Customize login url if needed
+    authorized_url="/login/google/authorized" # Optional: Customize if needed
+)
+app.register_blueprint(google_bp, url_prefix="/login") # Register blueprint
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -174,7 +204,16 @@ atexit.register(close_db_pool)
 
 @login_manager.user_loader
 def load_user(user_id):
-    db_user = get_user_by_id(user_id) # Uses imported function
+    # Automatically handle potentially invalid user_id format from cookie
+    try:
+        user_id_int = int(user_id)
+    except (ValueError, TypeError):
+        # If user_id is not a valid integer (e.g., old cookie with username)
+        print(f"Warning: Invalid user_id format '{user_id}' received from session cookie. Treating as logged out.")
+        return None
+
+    # Proceed only if user_id was a valid integer
+    db_user = get_user_by_id(user_id_int) # Uses imported function with integer ID
     if db_user:
         # Create User object (imported from database_manager)
         # Unpack the tuple: id=db_user[0], username=db_user[1], password_hash=db_user[2]
@@ -312,6 +351,102 @@ def chat_api():
 # @app.before_request
 # def protect_gradio_mount():
 #     ...
+
+# --- Google OAuth Login Handler ---
+# This function runs after Google successfully authenticates the user
+@app.route("/google_logged_in") # Route referred to in redirect_to for blueprint
+@oauth_authorized.connect_via(google_bp)
+def google_logged_in_handler(blueprint, token):
+    if not token:
+        flash("Failed to log in with Google.", category="error")
+        return redirect(url_for("login"))
+
+    # Get user info from Google
+    resp = blueprint.session.get("/oauth2/v3/userinfo")
+    if not resp.ok:
+        msg = "Failed to fetch user info from Google."
+        flash(msg, category="error")
+        print(f"Error fetching user info: {resp.status_code} - {resp.text}")
+        return redirect(url_for("login"))
+
+    google_info = resp.json()
+    google_user_id = str(google_info["sub"]) # Unique Google ID
+    email = google_info.get("email")
+
+    if not email:
+        flash("Google account does not have an email associated. Cannot log in.", category="error")
+        return redirect(url_for("login"))
+
+    # Find this user in the database by Google ID
+    user_data = get_user_by_google_id(google_user_id)
+
+    user = None
+    if user_data:
+        # User found by Google ID - log them in
+        user = User(id=user_data[0], username=user_data[1], password_hash=user_data[2])
+        print(f"Found existing user by Google ID: {user.id}")
+    else:
+        # User not found by Google ID, check if email exists (optional - careful)
+        # For simplicity, we'll create a new user if Google ID is not found
+        # We use email as the username for OAuth users
+        existing_user_by_email = get_user_by_username(email)
+        if existing_user_by_email and not existing_user_by_email[3]: # Check if existing email user is NOT already linked to Google
+            # Optional: Link existing account? Requires careful handling.
+            # For now, let's prevent login if email exists but google_id doesn't match
+            flash("An account with this email already exists, but is not linked to this Google account. Please login using your password or register differently.", category="warning")
+            return redirect(url_for("login"))
+        elif existing_user_by_email and existing_user_by_email[3] == google_user_id:
+             # This case handles if get_user_by_google_id somehow failed but email lookup works
+             user = User(id=existing_user_by_email[0], username=existing_user_by_email[1], password_hash=existing_user_by_email[2])
+             print(f"Found existing user by email matching Google ID: {user.id}")
+        else:
+            # Create a new user associated with this Google account
+            # Use email as username, no password hash needed for OAuth users
+            print(f"Creating new user for Google ID {google_user_id} with email {email}")
+            success, new_user_id = add_user(username=email, google_id=google_user_id)
+            if success:
+                user = User(id=new_user_id, username=email, password_hash=None) # Create User object for login
+                print(f"New user created with ID: {new_user_id}")
+            else:
+                flash("Failed to create a new user account from Google profile.", category="error")
+                return redirect(url_for("login"))
+
+    # Log in the user using Flask-Login
+    if user:
+        login_user(user)
+        flash("Successfully logged in with Google.")
+        # Redirect to the main page or wherever appropriate after login
+        # Check if there was a page user was trying to access
+        next_url = session.pop('_flashed_next_url', None) or url_for('index')
+        return redirect(next_url)
+    else:
+        # Should not happen if logic above is correct, but handle defensively
+        flash("Could not log you in with Google.", category="error")
+        return redirect(url_for("login"))
+
+# Optional: Handle OAuth errors gracefully
+@oauth_error.connect_via(google_bp)
+def google_oauth_error(blueprint, error, error_description=None, error_uri=None):
+    msg = (
+        "OAuth error from {name}! "
+        "error={error} description={description} uri={uri}"
+    ).format(
+        name=blueprint.name,
+        error=error,
+        description=error_description,
+        uri=error_uri,
+    )
+    print(f"OAuth Error: {msg}")
+    flash(msg, category="error")
+    return redirect(url_for("login"))
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    # Store the URL they were trying to access if it's not the login page
+    if request.endpoint != 'login':
+      session['_flashed_next_url'] = request.url
+    flash("You must be logged in to view this page.")
+    return redirect(url_for('login'))
 
 # --- Main Entry Point (for Gunicorn/Waitress - runs 'app') ---
 if __name__ == "__main__":
