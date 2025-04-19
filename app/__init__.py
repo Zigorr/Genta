@@ -25,7 +25,8 @@ login_manager = LoginManager()
 
 def create_app(config_name='default'):
     """Application factory function."""
-    app = Flask(__name__, instance_relative_config=False)
+    # Explicitly set template_folder relative to the app package directory
+    app = Flask(__name__, instance_relative_config=False, template_folder='../templates')
 
     # Load configuration
     cfg = config[config_name]
