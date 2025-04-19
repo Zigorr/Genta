@@ -16,7 +16,8 @@ from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 # Define the Blueprint for API routes related to the agency
 # Using url_prefix='/api' will make routes like /api/chat
 # Renamed to _api_bp internally, expose via __init__.py
-_api_bp = Blueprint('api', __name__, url_prefix='/api')
+# Rename blueprint to avoid potential conflicts
+_api_bp = Blueprint('agency_api', __name__, url_prefix='/api')
 
 # --- Agency Setup ---
 # Global variable to hold the initialized agency instance

@@ -13,8 +13,8 @@ from agency_swarm import Agency
 from MonitorCEO.MonitorCEO import MonitorCEO
 from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 
-# Import the blueprint from the main module file
-from .AgencySwarm import _api_bp as api_bp
+# Import the blueprint (now named _api_bp) from the main module file and export with desired name
+from .AgencySwarm import _api_bp as agency_api_bp
 
 # --- Agency Setup ---
 # Global variable to hold the initialized agency instance
@@ -65,7 +65,7 @@ def create_agency():
 
 # --- API Endpoint(s) ---
 
-@api_bp.route('/chat', methods=['POST'])
+@agency_api_bp.route('/chat', methods=['POST'])
 @login_required # Protect the API endpoint
 def chat_api():
     agency = create_agency() # Get or create the agency instance

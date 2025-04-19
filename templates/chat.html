@@ -53,7 +53,7 @@
             messageInput.disabled = true; // Disable input while waiting
 
             try {
-                const response = await fetch("{{ url_for('api.chat_api') }}", {
+                const response = await fetch("{{ url_for('agency_api.chat_api') }}", {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

@@ -17,7 +17,7 @@ from config import config # Use the dictionary defined in config.py
 # Import directly from database_manager again
 from Database.database_manager import init_db, close_db_pool
 from Auth import create_auth_blueprint
-from AgencySwarm import api_bp as agency_api_bp
+from AgencySwarm import agency_api_bp # Import the renamed blueprint export
 
 # Initialize extensions (outside factory to make them accessible)
 login_manager = LoginManager()
