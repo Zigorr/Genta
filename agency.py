@@ -358,6 +358,21 @@ def chat_api():
 # def protect_gradio_mount():
 #     ...
 
+# --- Debug Route for Google Login ---
+@app.route("/_debug/google_login")
+def debug_google_login():
+    # Generate the URL that the google.login endpoint would redirect to
+    # _external=True is crucial to get the full URL including https
+    try:
+        google_login_url = url_for('google.login', _external=True)
+        print(f"DEBUG: Generated Google Login URL: {google_login_url}")
+        # Perform the actual redirect
+        return redirect(google_login_url)
+    except Exception as e:
+        print(f"ERROR generating Google login URL: {e}")
+        flash("Error initiating Google Login. Check server logs.", "error")
+        return redirect(url_for('login'))
+
 # --- Google OAuth Login Handler ---
 # This function runs after Google successfully authenticates the user
 @app.route("/google_logged_in") # Route referred to in redirect_to for blueprint
