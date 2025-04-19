@@ -59,10 +59,7 @@ def create_auth_blueprint(login_manager):
     # Create Google OAuth blueprint (specific to this auth module)
     # Flask-Dance will automatically pick up client_id/secret from app.config later
     google_bp = make_google_blueprint(
-        # REMOVED client_id=current_app.config.get("GOOGLE_OAUTH_CLIENT_ID"),
-        # REMOVED client_secret=current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET"),
         scope=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
-        redirect_to="auth.google_logged_in_handler", # Use blueprint name
         login_url="/google", # Relative to blueprint prefix
         authorized_url="/google/authorized" # Relative to blueprint prefix
     )
@@ -140,8 +137,8 @@ def logout():
 
 # --- Google OAuth Handlers (within the Blueprint) ---
 
-# Note: 'redirect_to' in make_google_blueprint points here now
-@_auth_bp.route("/google_logged_in") # No prefix needed, handled by blueprint
+# REMOVED the explicit route decorator - Signal handler only
+# @_auth_bp.route("/google_logged_in")
 @oauth_authorized.connect_via("google") # Connect via name given to nested blueprint
 def google_logged_in_handler(blueprint, token):
     if not token:
