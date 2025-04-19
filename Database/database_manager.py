@@ -118,21 +118,11 @@ def init_db():
                 conn.rollback()
                 raise
 
-            # Step 4: Alter password_hash nullability
-            try:
-                print("Step 4: Ensuring password_hash column allows NULLs...")
-                _alter_column_nullability(cur, 'users', 'password_hash', True)
-                conn.commit() # Commit this step
-                print("Step 4: Completed.")
-            except Exception as e:
-                # Check if the error is harmless (e.g., already nullable)
-                # psycopg2 error for trying to drop NOT NULL when already nullable might be specific
-                # For now, log and potentially continue if altering null fails, 
-                # as the app logic might handle it.
-                print(f"Warning during Step 4 (Alter password_hash): {e}")
-                conn.rollback() # Rollback the failed alter attempt
-                # Decide whether to continue or raise; let's continue for now.
-                # raise
+            # Step 4: Alter password_hash nullability (No try/except needed here now)
+            print("Step 4: Ensuring password_hash column allows NULLs...")
+            _alter_column_nullability(cur, 'users', 'password_hash', True)
+            conn.commit() # Commit potentially successful alter or no-op
+            print("Step 4: Completed.")
 
             # Step 5: Add tokens_used column
             try:
@@ -180,15 +170,45 @@ def _add_column_if_not_exists(cursor, table, column, col_type):
     # Let other potential errors (e.g., during ALTER) propagate
 
 def _alter_column_nullability(cursor, table, column, allow_null):
-    """Helper to change nullability (PostgreSQL only). Lets errors propagate."""
+    """Helper to change nullability. Checks information_schema first for PostgreSQL."""
     if not IS_POSTGRES:
+        print("Note: Skipping nullability check/alter for non-PostgreSQL DB.")
         return
+
+    # Check current nullability using information_schema
+    cursor.execute("""
+        SELECT is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = %s AND column_name = %s;
+    """, (table, column))
+    result = cursor.fetchone()
+
+    if not result:
+        print(f"Warning: Could not find column '{column}' in information_schema for table '{table}'. Skipping nullability alter.")
+        return
+
+    is_currently_nullable = (result[0] == 'YES')
+
     if allow_null:
-        # This might fail if already nullable, but we catch it in init_db now
-        print(f"Attempting to allow NULLs for {column}...")
-        cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL;")
-        print(f"Allowed NULLs for column '{column}'.")
-    # else: pass (don't handle SET NOT NULL for now)
+        if is_currently_nullable:
+            print(f"Column '{column}' already allows NULLs.")
+        else:
+            print(f"Column '{column}' does not allow NULLs. Attempting to alter...")
+            try:
+                 cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL;")
+                 print(f"Successfully allowed NULLs for column '{column}'.")
+            except Exception as e:
+                 print(f"Error attempting to DROP NOT NULL for column '{column}': {e}")
+                 # Allow the main init_db handler to catch this if it's critical
+                 raise
+    else:
+        # Logic for SET NOT NULL (currently not used/needed for password_hash)
+        if not is_currently_nullable:
+            print(f"Column '{column}' is already NOT NULL.")
+        else:
+            print(f"Note: Setting column '{column}' to NOT NULL requires additional handling (e.g., default values) and is not performed automatically.")
+            # Potentially add SET NOT NULL logic here if needed in the future, handling defaults
+            pass
 
 # --- User Data Model ---
 class User(UserMixin):
