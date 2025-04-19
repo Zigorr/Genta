@@ -63,10 +63,9 @@ def create_auth_blueprint(login_manager):
     # Flask-Dance will automatically pick up client_id/secret from app.config later
     google_bp = make_google_blueprint(
         scope=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
-        login_url="/google", # Relative to blueprint prefix
-        authorized_url="/google/authorized", # Relative to blueprint prefix
-        # Explicitly define redirect URL after authorization is complete
-        redirect_url=url_for("auth.google_callback", _external=True)
+        redirect_to="auth.google_callback", # Use endpoint name string again
+        login_url="/google",
+        authorized_url="/google/authorized"
     )
     # Register Google blueprint *within* the auth blueprint
     _auth_bp.register_blueprint(google_bp, url_prefix="/login", name="google") # Give nested blueprint a name
