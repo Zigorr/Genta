@@ -58,10 +58,12 @@ def create_auth_blueprint(login_manager):
         except (ValueError, TypeError):
             print(f"Warning: Invalid user_id format '{user_id}' received from session cookie. Treating as logged out.")
             return None
+        # db_user is (id, username, password_hash, google_id, tokens_used, is_subscribed)
         db_user = get_user_by_id(user_id_int)
         if db_user:
-            # Use correct indices based on get_user_by_id returning (id, username, password_hash)
-            return User(id=db_user[0], username=db_user[1], password_hash=db_user[2])
+            # Correctly unpack all elements
+            return User(id=db_user[0], username=db_user[1], password_hash=db_user[2],
+                        google_id=db_user[3], tokens_used=db_user[4], is_subscribed=db_user[5])
         return None
 
     @login_manager.unauthorized_handler
@@ -113,10 +115,13 @@ def login():
         password = form.password.data # Access data via form
         remember_me = form.remember_me.data
 
+        # db_user is (id, username, password_hash, google_id, tokens_used, is_subscribed)
         db_user = get_user_by_username(username)
         # Check password only if user exists and password_hash is not null
         if db_user and db_user[2] and check_password_hash(db_user[2], password):
-            user = User(id=db_user[0], username=db_user[1], password_hash=db_user[2])
+            # Correctly unpack all elements for User object
+            user = User(id=db_user[0], username=db_user[1], password_hash=db_user[2],
+                        google_id=db_user[3], tokens_used=db_user[4], is_subscribed=db_user[5])
             login_user(user, remember=remember_me) # Pass remember_me flag
             flash('Logged in successfully.', category='success')
             next_page = session.pop('_flashed_next_url', None) or url_for('index') # Main index
@@ -193,14 +198,16 @@ def _process_google_login(google_info):
         return redirect(url_for(".login"))
 
     # 1. Check if user exists by Google ID
+    # user_data is (id, username, password_hash, google_id, tokens_used, is_subscribed)
     user_data = get_user_by_google_id(google_user_id)
     user = None
     login_message = ""
     login_category = "success"
 
     if user_data:
-        # Case 1: Google account already linked
-        user = User(id=user_data[0], username=user_data[1], password_hash=user_data[2])
+        # Case 1: Google account already linked - Correctly unpack all elements
+        user = User(id=user_data[0], username=user_data[1], password_hash=user_data[2],
+                    google_id=user_data[3], tokens_used=user_data[4], is_subscribed=user_data[5])
         print(f"Found existing user by Google ID: {user.id}")
         
         # *** Check intent if user exists ***
@@ -212,6 +219,7 @@ def _process_google_login(google_info):
 
     else:
         # 2. Check if user exists by email (but not linked to this Google ID)
+        # existing_user_by_email is (id, username, password_hash, google_id, tokens_used, is_subscribed)
         existing_user_by_email = get_user_by_username(email)
         if existing_user_by_email:
             # Check if the existing email account has NO google ID linked
@@ -228,9 +236,19 @@ def _process_google_login(google_info):
             print(f"Creating new user for Google ID {google_user_id} with email {email}")
             success, new_user_id = add_user(username=email, google_id=google_user_id)
             if success:
-                user = User(id=new_user_id, username=email, password_hash=None)
-                print(f"New user created with ID: {new_user_id}")
-                login_message = "Account created and logged in with Google."
+                # Create User object for newly created user
+                # Fetches the full user data including defaults for tokens_used, is_subscribed
+                new_db_user = get_user_by_id(new_user_id)
+                if new_db_user:
+                     user = User(id=new_db_user[0], username=new_db_user[1], password_hash=new_db_user[2],
+                                 google_id=new_db_user[3], tokens_used=new_db_user[4], is_subscribed=new_db_user[5])
+                     print(f"New user created and loaded: ID {new_user_id}")
+                     login_message = "Account created and logged in with Google."
+                else:
+                     # Should not happen, but handle error if user can't be fetched immediately after creation
+                     print(f"ERROR: Could not fetch newly created user {new_user_id}")
+                     flash("Failed to finalize user creation after Google sign-up.", category="error")
+                     return redirect(url_for(".login"))
             else:
                 flash("Failed to create a new user account from Google profile.", category="error")
                 return redirect(url_for(".login"))
@@ -242,10 +260,15 @@ def _process_google_login(google_info):
              flash(login_message, category=login_category)
         next_url = session.pop('_flashed_next_url', None) or url_for('index')
         return redirect(next_url)
-    else:
-        # Fallback if user creation failed or another logic path was missed
+    elif action != 'register': # Only show generic error if it wasn't a failed registration redirect
+        # Fallback if user object wasn't created (and we didn't redirect earlier)
         flash("Could not log you in with Google.", category="error")
         return redirect(url_for(".login"))
+    else:
+        # If action was 'register' and we got here without a user object,
+        # it means we already flashed the 'account exists' message and redirected.
+        # Do nothing further, the redirect is already handled.
+        pass
 
 # NEW: Explicit callback route
 @_auth_bp.route("/google/callback")
