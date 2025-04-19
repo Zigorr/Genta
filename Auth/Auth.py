@@ -177,37 +177,51 @@ def _process_google_login(google_info):
         flash("Google account does not have an email associated.", category="error")
         return redirect(url_for(".login"))
 
-    # Find/create user logic
+    # 1. Check if user exists by Google ID
     user_data = get_user_by_google_id(google_user_id)
     user = None
+    login_message = ""
+    login_category = "success"
+
     if user_data:
+        # Case 1: Google account already linked
         user = User(id=user_data[0], username=user_data[1], password_hash=user_data[2])
         print(f"Found existing user by Google ID: {user.id}")
+        login_message = "Welcome back! Logged in with Google."
     else:
+        # 2. Check if user exists by email (but not linked to this Google ID)
         existing_user_by_email = get_user_by_username(email)
-        if existing_user_by_email and existing_user_by_email[3] is None:
-            flash("An account with this email already exists...", category="warning")
-            return redirect(url_for(".login"))
-        elif existing_user_by_email and existing_user_by_email[3] == google_user_id:
-            user = User(id=existing_user_by_email[0], username=existing_user_by_email[1], password_hash=existing_user_by_email[2])
-            print(f"Found existing user by email matching Google ID: {user.id}")
+        if existing_user_by_email:
+            # Check if the existing email account has NO google ID linked
+            if existing_user_by_email[3] is None:
+                 # Case 2: Manual account with this email exists
+                flash("An account already exists with this email, but it's not linked to Google. Please log in with your password.", category="warning")
+                return redirect(url_for(".login"))
+            # Edge case: email matches but google ID doesn't? Should be rare.
+            # Treat as potentially suspicious or error, redirect to login.
+            else:
+                flash("Account email matches, but Google ID does not. Please contact support or log in manually.", category="error")
+                return redirect(url_for(".login"))
         else:
+            # 3. Create new user if neither Google ID nor email exists
             print(f"Creating new user for Google ID {google_user_id} with email {email}")
             success, new_user_id = add_user(username=email, google_id=google_user_id)
             if success:
                 user = User(id=new_user_id, username=email, password_hash=None)
                 print(f"New user created with ID: {new_user_id}")
+                login_message = "Account created and logged in with Google."
             else:
                 flash("Failed to create a new user account from Google profile.", category="error")
                 return redirect(url_for(".login"))
-    
-    # Log in user and redirect
+
+    # Log in user and redirect (if user object was created/found)
     if user:
-        login_user(user)
-        flash("Successfully logged in with Google.")
+        login_user(user) # Consider adding remember=True if desired
+        flash(login_message, category=login_category)
         next_url = session.pop('_flashed_next_url', None) or url_for('index')
         return redirect(next_url)
     else:
+        # Fallback if user creation failed or another logic path was missed
         flash("Could not log you in with Google.", category="error")
         return redirect(url_for(".login"))
 
