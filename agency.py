@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import re # Import regular expression module
 # import gradio as gr # Removed Gradio UI import
 from agency_swarm import Agency
 from agency_swarm import set_openai_key
@@ -110,20 +111,48 @@ def register():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     if request.method == 'POST':
-        username = request.form['username']
+        username = request.form['username'].strip() # Add strip()
         password = request.form['password']
-        if username in users_db:
+
+        # --- Password Validation --- 
+        error = None
+        if len(password) < 8:
+            error = 'Password must be at least 8 characters long.'
+        elif not re.search(r"[A-Z]", password):
+            error = 'Password must contain at least one uppercase letter.'
+        # Optional: Add more checks (lowercase, number, symbol) here if desired
+        # elif not re.search(r"[a-z]", password):
+        #     error = 'Password must contain at least one lowercase letter.'
+        # elif not re.search(r"[0-9]", password):
+        #     error = 'Password must contain at least one number.'
+        
+        if error:
+            flash(error)
+        # --- End Password Validation ---
+        
+        elif username in users_db:
             flash('Username already exists')
-        elif not username or not password:
+        elif not username or not password: # Should be caught by length check, but good practice
              flash('Username and password cannot be empty')
         else:
+            # All checks passed, proceed with registration
             hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
             users_db[username] = {'password_hash': hashed_password}
             save_users(users_db)
             flash('Registration successful! Please login.')
             return redirect(url_for('login'))
-    # Render register form from template file
-    return render_template('register.html')
+            
+    # Render register form (also renders if validation fails)
+    REGISTER_TEMPLATE = '''
+    <!doctype html><html><head><title>Register</title></head><body><h1>Register</h1>
+    {% with messages = get_flashed_messages() %}{% if messages %}<ul>{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}{% endwith %}
+    <form method="post">
+    Username: <input type="text" name="username"><br>
+    Password: <input type="password" name="password"><br>
+    <input type="submit" value="Register">
+    </form><p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p></body></html>
+    '''
+    return render_template_string(REGISTER_TEMPLATE)
 
 @app.route('/logout')
 @login_required
