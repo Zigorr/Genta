@@ -3,54 +3,81 @@
 <head>
     <title>Website Monitor Agency</title>
     <style>
-        body { font-family: sans-serif; margin: 20px; }
-        #chatbox { height: 500px; width: 100%; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
-        .message { margin-bottom: 10px; padding: 5px; border-radius: 5px; word-wrap: break-word; }
-        .user { background-color: #e1f5fe; text-align: right; margin-left: 40px;}
-        .assistant { background-color: #f1f1f1; margin-right: 40px; }
-        #input-area { display: flex; }
-        #input-area input { flex-grow: 1; padding: 10px; margin-right: 10px; }
-        #input-area button { padding: 10px; }
+        body { font-family: sans-serif; margin: 20px; background-color: #f0f2f5; }
+        #chat-container { max-width: 800px; margin: auto; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; height: 90vh; }
+        #chatbox { flex-grow: 1; overflow-y: scroll; border: 1px solid #ccc; padding: 15px; margin-bottom: 10px; background-color: #ffffff; }
+        .message { margin-bottom: 12px; padding: 8px 12px; border-radius: 18px; max-width: 75%; word-wrap: break-word; line-height: 1.4; }
+        .user { background-color: #0084ff; color: white; text-align: left; margin-left: auto; border-bottom-right-radius: 4px; }
+        .assistant { background-color: #e4e6eb; color: #050505; text-align: left; margin-right: auto; border-bottom-left-radius: 4px; }
+        .system-message { font-style: italic; color: #65676b; text-align: center; margin: 10px 0; font-size: 0.9em; }
+        .error { color: #fa3e3e; font-weight: bold; }
+        /* Corrected class name */
+        .assistant-error { background-color: #fdecea; color: #a94442; margin-right: auto; border-bottom-left-radius: 4px; }
+        #input-area { display: flex; padding: 10px; border-top: 1px solid #ccc; background-color: #f0f2f5; }
+        #input-area input { flex-grow: 1; padding: 10px; margin-right: 10px; border-radius: 18px; border: 1px solid #ccc; }
+        #input-area input:focus { outline: none; border-color: #0084ff; }
+        #input-area button { padding: 10px 15px; border-radius: 18px; border: none; background-color: #0084ff; color: white; cursor: pointer; }
+        #input-area button:disabled { background-color: #a0c3ff; cursor: not-allowed; }
         #logout { position: absolute; top: 10px; right: 10px; }
-        .error { color: red; font-style: italic; }
+        #subscribe-section { margin-top: 15px; padding: 10px; border: 1px solid #ffecb3; background-color: #fff9c4; text-align: center; border-radius: 4px; }
     </style>
 </head>
 <body>
-    <h1>Website Monitor Agency</h1>
-    <div id="logout"><a href="{{ url_for('auth.logout') }}">Logout</a></div>
+    <div id="chat-container">
+        <h1 style="text-align: center; padding: 15px 0; border-bottom: 1px solid #ccc; margin: 0;">Website Monitor Agency</h1>
+        <div id="logout"><a href="{{ url_for('auth.logout') }}">Logout</a></div>
 
-    <div id="chatbox">
-        <!-- Chat messages will appear here -->
+        <div id="chatbox">
+            <!-- Chat messages will appear here -->
+        </div>
+
+        <!-- Subscription message area -->
+        <div id="subscribe-section" style="display: none; padding: 10px;">
+            <!-- Content will be added by JavaScript -->
+        </div>
+
+        <form id="input-area">
+            <input type="text" id="message-input" placeholder="Enter task (e.g., monitor URL X with selector Y)" autocomplete="off">
+            <button type="submit" id="send-button">Send</button>
+        </form>
     </div>
-
-    <form id="input-area">
-        <input type="text" id="message-input" placeholder="Enter task (e.g., monitor URL X with selector Y)" autocomplete="off">
-        <button type="submit">Send</button>
-    </form>
 
     <script>
         const chatbox = document.getElementById('chatbox');
         const messageInput = document.getElementById('message-input');
         const inputForm = document.getElementById('input-area');
+        const sendButton = document.getElementById('send-button');
+        const subscribeSection = document.getElementById('subscribe-section');
 
         function addMessage(role, text) {
             const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message', role);
-            // Basic sanitization to prevent HTML injection - createTextNode is safe
+            // Use hyphenated class name for errors
+            const messageRoleClass = role.includes('error') ? 'assistant-error' : role;
+            messageDiv.classList.add('message', messageRoleClass);
+
+            // Basic sanitization
             const textNode = document.createTextNode(text);
             messageDiv.appendChild(textNode);
             chatbox.appendChild(messageDiv);
-            chatbox.scrollTop = chatbox.scrollHeight; // Scroll to bottom
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        function handleSubscribeClick() {
+            // Placeholder for your subscription logic
+            alert("Subscription feature coming soon!");
+            // Or redirect: window.location.href = '/subscribe-page';
         }
 
         inputForm.addEventListener('submit', async (event) => {
-            event.preventDefault(); // Prevent default form submission
+            event.preventDefault();
             const message = messageInput.value.trim();
             if (!message) return;
 
             addMessage('user', message);
-            messageInput.value = ''; // Clear input
-            messageInput.disabled = true; // Disable input while waiting
+            messageInput.value = '';
+            messageInput.disabled = true;
+            sendButton.disabled = true;
+            subscribeSection.style.display = 'none';
 
             try {
                 const response = await fetch("{{ url_for('agency_api.agency_chat') }}", {
@@ -61,29 +88,48 @@
                     body: JSON.stringify({ message: message })
                 });
 
-                const data = await response.json(); // Try to parse JSON regardless of status
-
-                if (!response.ok) {
-                    // Display error from JSON if available, otherwise use status text
-                    const errorText = data.error || `HTTP error! status: ${response.status} ${response.statusText}`;
-                    throw new Error(errorText);
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    console.error("Failed to parse JSON response:", jsonError);
+                    throw new Error(`HTTP error! Status: ${response.status} ${response.statusText || '(No status text)'}`);
                 }
 
-                addMessage('assistant', data.response);
+                if (response.status === 403 && data.limit_reached === true) {
+                    // --- Handle Token Limit --- 
+                    addMessage('system-message error', data.message);
+                    subscribeSection.innerHTML = `
+                        <p>If you enjoyed the service you can subscribe to our service</p>
+                        <button onclick="handleSubscribeClick()">Subscribe</button>
+                    `;
+                    subscribeSection.style.display = 'block';
+                } else if (!response.ok) {
+                    // --- Handle Other Errors --- 
+                    const errorText = data.error || `API Error: ${response.status} ${response.statusText}`;
+                    throw new Error(errorText);
+                } else {
+                    // --- Handle Successful Response --- 
+                    // 1. Display captured steps if they exist
+                    if (data.steps && data.steps.trim() !== '') {
+                        // Use a system-message style for the steps
+                        addMessage('system-message', `--- Agent Steps ---\n${data.steps}`);
+                    }
+                    // 2. Display the final assistant response
+                    addMessage('assistant', data.response);
+                }
 
             } catch (error) {
                 console.error('Error fetching/processing chat response:', error);
-                // Display a user-friendly error message
-                addMessage('assistant error', `Sorry, an error occurred: ${error.message}. Please check server logs if possible.`);
+                addMessage('assistant-error', `Sorry, an error occurred: ${error.message}.`);
             } finally {
-                 messageInput.disabled = false; // Re-enable input
+                 messageInput.disabled = false;
+                 sendButton.disabled = false;
                  messageInput.focus();
             }
         });
 
-        // Initial focus
         messageInput.focus();
-
     </script>
 </body>
 </html> 

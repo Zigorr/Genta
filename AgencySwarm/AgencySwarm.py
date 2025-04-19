@@ -2,6 +2,8 @@
 
 import sys
 import traceback
+import io                 # Added for capturing stdout
+import contextlib         # Added for redirecting stdout
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 import tiktoken
@@ -132,9 +134,22 @@ def chat_api():
         prompt_tokens = len(encoding.encode(message))
         print(f"User {user_id} - Prompt tokens: {prompt_tokens}")
 
-        # Get completion from the agency
-        response_text = agency.get_completion(message)
+        # --- Capture stdout during agency completion ---
+        stdout_capture = io.StringIO()
+        response_text = "" # Initialize response_text
+        try:
+            with contextlib.redirect_stdout(stdout_capture):
+                # Get completion from the agency
+                # This will now print to stdout_capture instead of console
+                response_text = agency.get_completion(message)
+        finally:
+            captured_steps = stdout_capture.getvalue()
+            # Optional: Print captured steps to actual console for debugging if needed
+            # print("--- Captured Steps ---")
+            # print(captured_steps)
+            # print("--- End Captured Steps ---")
 
+        # --- Token Counting (Completion) ---
         completion_tokens = len(encoding.encode(response_text))
         total_tokens = prompt_tokens + completion_tokens
         print(f"User {user_id} - Completion tokens: {completion_tokens}, Total: {total_tokens}")
@@ -150,7 +165,12 @@ def chat_api():
                  print(f"User {user_id} - Updated token usage by {total_tokens}")
 
         print(f"API sending response: {response_text}")
-        return jsonify({"response": response_text, "limit_reached": False})
+        # --- Return response including captured steps ---
+        return jsonify({
+            "response": response_text,
+            "steps": captured_steps, # Add the captured steps here
+            "limit_reached": False
+        })
 
     except Exception as e:
         print(f"Error during agency completion via API: {e}", file=sys.stderr)
