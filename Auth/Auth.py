@@ -14,8 +14,8 @@ from flask_dance.consumer import oauth_authorized, oauth_error
 
 # Import database functions and User model from the Database module
 # Assumes Database module is at the same level as Auth
-# Import directly from Database package now, thanks to Database/__init__.py
-from Database import (
+# Import directly from database_manager again
+from Database.database_manager import (
     User, get_user_by_id, get_user_by_username, add_user, get_user_by_google_id
 )
 

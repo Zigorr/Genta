@@ -14,8 +14,8 @@ from config import config # Use the dictionary defined in config.py
 # Import modules/blueprints
 # Assuming Database, Auth, AgencySwarm are siblings to the 'app' directory
 # If they are inside 'app', change the import path
-# Import directly from Database package now, thanks to Database/__init__.py
-from Database import init_db, close_db_pool
+# Import directly from database_manager again
+from Database.database_manager import init_db, close_db_pool
 from Auth import create_auth_blueprint
 from AgencySwarm import api_bp as agency_api_bp
 
