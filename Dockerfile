@@ -26,7 +26,7 @@ COPY requirements.txt .
 # ARG CACHEBUST=1
 
 # Install dependencies from requirements.txt
-RUN echo "Forcing rebuild with arg: ${FORCE_REBUILD}" && \
+RUN echo \"Forcing rebuild with arg: 5\" && \
     pip install --no-cache-dir -r requirements.txt
 
 # Explicitly install gunicorn in a separate step
