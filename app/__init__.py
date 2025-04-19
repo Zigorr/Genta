@@ -18,6 +18,7 @@ from config import config # Use the dictionary defined in config.py
 from Database.database_manager import init_db, close_connection_pool
 from Auth import create_auth_blueprint
 from AgencySwarm import agency_api_bp # Import the renamed blueprint export
+from UserSettings import settings_bp # Import the new blueprint
 
 # Initialize extensions (outside factory to make them accessible)
 login_manager = LoginManager()
@@ -58,6 +59,7 @@ def create_app(config_name='default'):
     auth_bp = create_auth_blueprint(login_manager) # Pass login_manager
     app.register_blueprint(auth_bp)
     app.register_blueprint(agency_api_bp)
+    app.register_blueprint(settings_bp) # Register the new blueprint
 
     # Register simple route for index page
     @app.route('/')

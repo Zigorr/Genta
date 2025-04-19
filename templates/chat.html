@@ -20,12 +20,26 @@
         #input-area button:disabled { background-color: #a0c3ff; cursor: not-allowed; }
         #logout { position: absolute; top: 10px; right: 10px; }
         #subscribe-section { margin-top: 15px; padding: 10px; border: 1px solid #ffecb3; background-color: #fff9c4; text-align: center; border-radius: 4px; }
+        #header { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; border-bottom: 1px solid #ccc; background-color: #f8f9fa; }
+        #header h1 { margin: 0; text-align: left; font-size: 1.5em; }
+        #user-nav { display: flex; align-items: center; }
+        #user-nav a { text-decoration: none; color: #007bff; margin-left: 15px; }
+        #user-nav a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <div id="chat-container">
-        <h1 style="text-align: center; padding: 15px 0; border-bottom: 1px solid #ccc; margin: 0;">Website Monitor Agency</h1>
-        <div id="logout"><a href="{{ url_for('auth.logout') }}">Logout</a></div>
+        <div id="header">
+             <h1>Website Monitor Agency</h1>
+             <div id="user-nav">
+                 {# Check if current_user is loaded and authenticated #}
+                 {% if current_user and current_user.is_authenticated %}
+                     {# Link to User Settings page using username #}
+                     <a href="{{ url_for('settings.view_settings') }}" title="Settings">{{ current_user.username }}</a> 
+                 {% endif %}
+                 <a href="{{ url_for('auth.logout') }}">Logout</a>
+            </div>
+        </div>
 
         <div id="chatbox">
             <!-- Chat messages will appear here -->

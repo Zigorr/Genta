@@ -17,7 +17,7 @@ from MonitorCEO.MonitorCEO import MonitorCEO
 from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 
 # Import database functions
-from Database.database_manager import get_user_token_details, update_token_usage
+from Database.database_manager import get_user_token_details, update_token_usage, add_chat_message
 
 # Define the Blueprint for API routes related to the agency
 # Using url_prefix='/api' will make routes like /api/chat
@@ -128,7 +128,20 @@ def chat_api():
     if not message:
         return jsonify({"error": "Missing 'message' in request body"}), 400
 
+    # --- Log User Message ---
+    try:
+        add_chat_message(user_id, 'user', message)
+    except Exception as log_e: # Catch potential logging errors
+        print(f"Error logging user message: {log_e}", file=sys.stderr)
+        # Decide if this should prevent continuing? Maybe not.
+
     print(f"API received message from user {user_id}: {message}")
+    response_payload = {}
+    captured_steps = ""
+    final_response_text = ""
+    error_occurred = False
+    error_message = ""
+
     try:
         # --- Token Counting ---
         prompt_tokens = len(encoding.encode(message))
@@ -136,12 +149,9 @@ def chat_api():
 
         # --- Capture stdout during agency completion ---
         stdout_capture = io.StringIO()
-        response_text = "" # Initialize response_text
         try:
             with contextlib.redirect_stdout(stdout_capture):
-                # Get completion from the agency
-                # This will now print to stdout_capture instead of console
-                response_text = agency.get_completion(message)
+                final_response_text = agency.get_completion(message)
         finally:
             captured_steps = stdout_capture.getvalue()
             # Optional: Print captured steps to actual console for debugging if needed
@@ -150,7 +160,7 @@ def chat_api():
             # print("--- End Captured Steps ---")
 
         # --- Token Counting (Completion) ---
-        completion_tokens = len(encoding.encode(response_text))
+        completion_tokens = len(encoding.encode(final_response_text))
         total_tokens = prompt_tokens + completion_tokens
         print(f"User {user_id} - Completion tokens: {completion_tokens}, Total: {total_tokens}")
 
@@ -164,15 +174,33 @@ def chat_api():
             else:
                  print(f"User {user_id} - Updated token usage by {total_tokens}")
 
-        print(f"API sending response: {response_text}")
-        # --- Return response including captured steps ---
-        return jsonify({
-            "response": response_text,
-            "steps": captured_steps, # Add the captured steps here
+        response_payload = {
+            "response": final_response_text,
+            "steps": captured_steps,
             "limit_reached": False
-        })
+        }
+
+        # --- Log Agent Response ---
+        try:
+            if captured_steps.strip(): # Log steps if captured
+                add_chat_message(user_id, 'system', f"--- Agent Steps ---\n{captured_steps}")
+            add_chat_message(user_id, 'assistant', final_response_text)
+        except Exception as log_e: 
+             print(f"Error logging agent response: {log_e}", file=sys.stderr)
 
     except Exception as e:
+        error_occurred = True
+        error_message = f"An internal error occurred: {e}"
         print(f"Error during agency completion via API: {e}", file=sys.stderr)
-        traceback.print_exc() # Log full traceback
-        return jsonify({"error": f"An internal error occurred: {e}"}), 500 
+        traceback.print_exc()
+        response_payload = {"error": error_message}
+        # --- Log Error Message ---
+        try:
+            add_chat_message(user_id, 'error', error_message)
+        except Exception as log_e:
+            print(f"Error logging error message: {log_e}", file=sys.stderr)
+
+    # --- Return JSON Response ---
+    status_code = 500 if error_occurred else 200
+    print(f"API sending response (Status: {status_code}): {response_payload.get('response', response_payload.get('error'))}")
+    return jsonify(response_payload), status_code 

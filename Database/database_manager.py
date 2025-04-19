@@ -9,6 +9,7 @@ from flask_login import UserMixin # Needed for the User class
 # from dotenv import load_dotenv
 import sqlite3
 import traceback
+import datetime # Needed for timestamps
 
 # --- Configuration & Constants ---
 # load_dotenv(override=True) # Removed
@@ -135,6 +136,37 @@ def init_db():
                 print(f"Error during Step 4 (Create Indices): {e}")
                 conn.rollback()
                 raise # Halt if index creation fails
+
+            # --- Chat History Table Setup (NEW) ---
+            print("Step 5: Ensuring chat_history table exists...")
+            try:
+                cur.execute("""
+                CREATE TABLE IF NOT EXISTS chat_history (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    role TEXT NOT NULL, -- 'user', 'assistant', 'system', 'error'
+                    content TEXT NOT NULL,
+                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+                """)
+                conn.commit()
+                print("Step 5: chat_history table completed.")
+            except Exception as e:
+                print(f"Chat History Table Error: {e}")
+                conn.rollback()
+                raise
+
+            # Step 6: Chat History Indices (NEW)
+            print("Step 6: Ensuring chat_history indices exist...")
+            try:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_user_id_timestamp ON chat_history (user_id, timestamp DESC);")
+                conn.commit()
+                print("Step 6: chat_history indices completed.")
+            except Exception as e:
+                print(f"Chat History Indices Error: {e}")
+                conn.rollback()
+                raise
 
             print("Database schema initialization/migration complete.")
 
@@ -323,4 +355,52 @@ def update_token_usage(user_id, tokens_increment):
         print(f"Error updating token usage for user {user_id}: {e}")
         return False # Indicate failure
     finally:
-        release_db_connection(conn) 
+        release_db_connection(conn)
+
+# --- Chat History Functions (NEW) ---
+
+def add_chat_message(user_id, role, content):
+    """Adds a message to the chat history."""
+    conn = get_db_connection()
+    if not conn:
+        print("ERROR: Could not get DB connection to add chat message.", file=sys.stderr)
+        return False
+    sql = "INSERT INTO chat_history (user_id, role, content, timestamp) VALUES (%s, %s, %s, %s)"
+    timestamp = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (user_id, role, content, timestamp))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Error adding chat message for user {user_id}: {e}", file=sys.stderr)
+        conn.rollback()
+        return False
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+def get_chat_history(user_id, limit=50):
+    """Retrieves the most recent chat messages for a user."""
+    conn = get_db_connection()
+    if not conn:
+        print("ERROR: Could not get DB connection to get chat history.", file=sys.stderr)
+        return []
+    # Fetch role, content, timestamp - adjust columns as needed
+    sql = "SELECT role, content, timestamp FROM chat_history WHERE user_id = %s ORDER BY timestamp DESC LIMIT %s"
+    messages = []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (user_id, limit))
+            # Fetchall returns list of tuples
+            results = cur.fetchall()
+            # Convert to list of dicts for easier template use, reverse to show oldest first
+            for row in reversed(results):
+                messages.append({'role': row[0], 'content': row[1], 'timestamp': row[2]})
+            return messages
+    except Exception as e:
+        print(f"Error fetching chat history for user {user_id}: {e}", file=sys.stderr)
+        return [] # Return empty list on error
+    finally:
+        if conn:
+            release_db_connection(conn) 
