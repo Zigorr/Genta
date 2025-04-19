@@ -62,7 +62,17 @@ def create_app(config_name='default'):
     @app.route('/')
     @login_required
     def index():
-        return render_template('chat.html')
+        try:
+            # Render the main chat interface template
+            return render_template('chat.html')
+        except Exception as e:
+            # Explicitly log any exception occurring in this route
+            app.logger.error(f"Error rendering index route: {e}", exc_info=True)
+            # Reraise the exception or return a generic error response
+            # Re-raising might be better for seeing the original 500 error page
+            # raise
+            # Or return a custom error page/message:
+            return "An internal error occurred while loading the page.", 500
 
     # Register shutdown hook
     atexit.register(close_db_pool)
