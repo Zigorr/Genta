@@ -5,7 +5,7 @@ from wtforms.validators import DataRequired, Length, EqualTo, ValidationError, R
 import re # For password complexity
 
 # Optional: Import your get_user_by_username function if needed for validation
-# from Database.database_manager import get_user_by_username
+from Database.database_manager import get_user_by_username
 
 # Helper function for username validation
 def validate_username_unique(form, field):
@@ -87,7 +87,6 @@ class SetUsernameForm(FlaskForm):
     # Add validator to check if username already exists
     def validate_username(self, username):
         # Needs access to the database check function
-        from Database.database_manager import get_user_by_username
         user = get_user_by_username(username.data)
         if user:
             raise ValidationError('That username is already taken. Please choose a different one.') 
