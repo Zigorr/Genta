@@ -22,9 +22,22 @@ from Database.database_manager import (
     User, get_user_by_id, get_user_by_username, add_user, get_user_by_google_id
 )
 
+# Import Forms - Assuming they are in Auth/forms.py
+try:
+    from .forms import LoginForm, RegistrationForm
+except ImportError:
+    # Handle case where forms.py might not exist or has different naming
+    # Provide default empty forms to prevent crashes, but log a warning.
+    # Ideally, create forms.py if it's missing.
+    print("WARNING: Could not import LoginForm or RegistrationForm from Auth.forms. Check if forms.py exists and defines these classes.", file=sys.stderr)
+    from wtforms import Form
+    class LoginForm(Form): pass
+    class RegistrationForm(Form): pass
+
+
 # Define the Blueprint for authentication routes
 # Renamed to _auth_bp internally, expose via factory
-# Remove template_folder to use the main app's template folder
+# Remove template_folder to use the main app\'s template folder
 _auth_bp = Blueprint('auth', __name__)
 
 # We need access to the login_manager created in the main app
@@ -78,34 +91,40 @@ def create_auth_blueprint(login_manager):
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('index')) # Redirect to main index
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        # Use index 3 for google_id after DB change
+
+    form = LoginForm() # Instantiate the form
+
+    if form.validate_on_submit(): # Use form validation
+        username = form.username.data # Access data via form
+        password = form.password.data # Access data via form
+        remember_me = form.remember_me.data
+
         db_user = get_user_by_username(username)
         # Check password only if user exists and password_hash is not null
         if db_user and db_user[2] and check_password_hash(db_user[2], password):
-            # Use correct indices based on get_user_by_username returning (id, username, password_hash, google_id)
             user = User(id=db_user[0], username=db_user[1], password_hash=db_user[2])
-            login_user(user)
-            flash('Logged in successfully.')
+            login_user(user, remember=remember_me) # Pass remember_me flag
+            flash('Logged in successfully.', category='success')
             next_page = session.pop('_flashed_next_url', None) or url_for('index') # Main index
             return redirect(next_page)
         else:
-            flash('Invalid username or password')
-    # Pass the template path relative to the app's template folder or configure blueprint template folder
-    return render_template('login.html')
+            flash('Invalid username or password', category='error')
+
+    # Pass the form object to the template for both GET and failed POST
+    return render_template('login.html', title='Login', form=form)
 
 @_auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('index')) # Main index
-    if request.method == 'POST':
-        username = request.form['username'].strip()
-        password = request.form['password']
 
-        # Add regex import if needed here or at top level
-        # import re # Removed from here
+    form = RegistrationForm() # Instantiate the form
+
+    if form.validate_on_submit(): # Use form validation
+        username = form.username.data.strip() # Access data via form
+        password = form.password.data # Access data via form
+
+        # Password complexity checks can be moved to the form validator if desired
         error = None
         # Check length
         if len(password) < 8:
@@ -114,25 +133,28 @@ def register():
         elif not re.search(r"[A-Z]", password):
             error = 'Password must contain at least one uppercase letter.'
         # Check for numeral
-        elif not re.search(r"[0-9]", password): # Or use \d
+        elif not re.search(r"[0-9]", password): # Or use \\d
             error = 'Password must contain at least one numeral.'
+        # Check if username exists (also could be a form validator)
+        elif get_user_by_username(username):
+             error = 'Username already exists'
 
         if error:
-            flash(error)
-        elif get_user_by_username(username):
-            flash('Username already exists')
-        elif not username or not password:
-             flash('Username and password cannot be empty')
+            flash(error, category='error')
+        # No need to check for empty username/password here, form validators handle it
+        # elif not username or not password:
+        #      flash(\'Username and password cannot be empty\')
         else:
             hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
             success, _ = add_user(username, hashed_password) # Ignore returned ID here
             if success:
-                flash('Registration successful! Please login.')
+                flash('Registration successful! Please login.', category='success')
                 return redirect(url_for('auth.login')) # Redirect to blueprint login
             else:
-                flash('An error occurred during registration. Please try again.')
+                flash('An error occurred during registration. Please try again.', category='error')
 
-    return render_template('register.html')
+    # Pass the form object to the template for both GET and failed POST
+    return render_template('register.html', title='Register', form=form)
 
 
 @_auth_bp.route('/logout')
