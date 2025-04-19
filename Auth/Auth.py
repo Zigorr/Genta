@@ -21,7 +21,8 @@ from Database.database_manager import (
 
 # Define the Blueprint for authentication routes
 # Renamed to _auth_bp internally, expose via factory
-_auth_bp = Blueprint('auth', __name__, template_folder='templates')
+# Remove template_folder to use the main app's template folder
+_auth_bp = Blueprint('auth', __name__)
 
 # We need access to the login_manager created in the main app
 # We'll configure it within the factory function or pass it in
