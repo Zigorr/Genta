@@ -15,7 +15,7 @@ from config import config # Use the dictionary defined in config.py
 # Assuming Database, Auth, AgencySwarm are siblings to the 'app' directory
 # If they are inside 'app', change the import path
 # Import directly from database_manager again
-from Database.database_manager import init_db, close_db_pool
+from Database.database_manager import init_db, close_connection_pool
 from Auth import create_auth_blueprint
 from AgencySwarm import agency_api_bp # Import the renamed blueprint export
 
@@ -76,6 +76,6 @@ def create_app(config_name='default'):
             return "An internal error occurred while loading the page.", 500
 
     # Register shutdown hook
-    atexit.register(close_db_pool)
+    atexit.register(close_connection_pool)
 
     return app 
