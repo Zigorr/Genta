@@ -7,6 +7,11 @@ import re # For password complexity
 # Optional: Import your get_user_by_username function if needed for validation
 # from Database.database_manager import get_user_by_username
 
+# Helper function for username validation
+def validate_username_unique(form, field):
+    if get_user_by_username(field.data):
+        raise ValidationError('Username already taken. Please choose a different one.')
+
 class LoginForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired()])
     password = PasswordField('Password', validators=[DataRequired()])
@@ -14,7 +19,12 @@ class LoginForm(FlaskForm):
     submit = SubmitField('Login')
 
 class RegistrationForm(FlaskForm):
-    username = StringField('Username', validators=[DataRequired(), Length(min=3, max=64)])
+    username = StringField('Username', validators=[
+        DataRequired(), 
+        Length(min=4, max=25), 
+        Regexp(r'^[a-zA-Z0-9]+$', message="Username must contain only letters and numbers (no spaces)."),
+        validate_username_unique
+    ])
     password = PasswordField('Password', validators=[
         DataRequired(),
         Length(min=8, message='Password must be at least 8 characters long.'),
@@ -39,7 +49,9 @@ class RegistrationForm(FlaskForm):
 class ChangeUsernameForm(FlaskForm):
     username = StringField('New Username', validators=[
         DataRequired(), 
-        Length(min=3, max=64, message='Username must be between 3 and 64 characters.')
+        Length(min=4, max=25), 
+        Regexp(r'^[a-zA-Z0-9]+$', message="Username must contain only letters and numbers (no spaces)."),
+        validate_username_unique
     ])
     submit = SubmitField('Change Username')
 
@@ -64,9 +76,11 @@ class ChangePasswordForm(FlaskForm):
     submit = SubmitField('Change Password')
 
 class SetUsernameForm(FlaskForm):
-    username = StringField('Choose a Username', validators=[
+    username = StringField('Username', validators=[
         DataRequired(), 
-        Length(min=3, max=64, message='Username must be between 3 and 64 characters.')
+        Length(min=4, max=25), 
+        Regexp(r'^[a-zA-Z0-9]+$', message="Username must contain only letters and numbers (no spaces)."),
+        validate_username_unique
     ])
     submit = SubmitField('Set Username')
 
