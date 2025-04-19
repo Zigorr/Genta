@@ -137,10 +137,9 @@ def logout():
 
 # --- Google OAuth Handlers (within the Blueprint) ---
 
-# REMOVED the explicit route decorator - Signal handler only
-# @_auth_bp.route("/google_logged_in")
 @oauth_authorized.connect_via("google") # Connect via name given to nested blueprint
 def google_logged_in_handler(blueprint, token):
+    print("DEBUG: Entered google_logged_in_handler!") # Check if function is called
     if not token:
         flash("Failed to log in with Google.", category="error")
         return redirect(url_for(".login")) # Use relative .login
