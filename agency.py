@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from flask import Flask, request, render_template, redirect, url_for, flash, jsonify, g # Added g for db connection storage
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix # Import ProxyFix
 # Removed a2wsgi import
 
 # Flask-Dance imports
@@ -107,6 +108,11 @@ else:
 
 # --- Flask App Setup (Main App) ---
 app = Flask(__name__) # Use standard 'app' name
+
+# Apply ProxyFix to handle X-Forwarded-Proto (for HTTPS detection behind proxy)
+# trust 1 level of proxy (Railway's load balancer)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
 app.secret_key = FLASK_SECRET_KEY
 
 # Configure session timeout (5 minutes of inactivity)
