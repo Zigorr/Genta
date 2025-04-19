@@ -113,35 +113,33 @@ def init_db():
 def _add_column_if_not_exists(cursor, table, column, col_type):
     """Helper to add a column if it doesn't exist."""
     try:
+        # Try selecting the column
         cursor.execute(f"SELECT {column} FROM {table} LIMIT 1;")
     except (psycopg2.errors.UndefinedColumn, sqlite3.OperationalError):
-        # Column doesn't exist, add it
+        # Expected error: Column doesn't exist, so add it
+        print(f"Attempting to add column '{column}' to table '{table}'.")
+        # We are already in an exception handler, let potential errors 
+        # during ALTER TABLE propagate to the main init_db handler.
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type};")
-        print(f"Added column '{column}' to table '{table}'.")
+        print(f"Successfully added column '{column}'.")
+    # Let any other unexpected database errors propagate up to init_db
 
 def _alter_column_nullability(cursor, table, column, allow_null):
     """Helper to change nullability (PostgreSQL only for direct SET/DROP NOT NULL)."""
     if not IS_POSTGRES:
-        # SQLite requires complex table rebuild, often easier to handle in model/app logic
-        # print(f"Note: Altering NULL constraint on '{column}' for SQLite requires table rebuild.")
-        return
-    try:
-        # Check current nullability (This is a bit complex, maybe just try the ALTER)
-        # Instead, just try setting or dropping the constraint
-        if allow_null:
-            cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL;")
-            print(f"Allowed NULLs for column '{column}' in table '{table}'.")
-        else:
-            # Ensure existing NULLs are handled before adding NOT NULL
-            cursor.execute(f"UPDATE {table} SET {column} = <default_value> WHERE {column} IS NULL;") # Replace <default_value> appropriately
-            cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL;")
-            print(f"Set NOT NULL for column '{column}' in table '{table}'.")
-    except (psycopg2.errors.UndefinedColumn, psycopg2.errors.InvalidTableDefinition) as e:
-         print(f"Could not alter nullability for {column}: {e}") # Might fail if column doesn't exist or other issues
-    except psycopg2.errors.NotNullViolation as e:
-         print(f"Could not SET NOT NULL for {column}, existing NULLs? Error: {e}")
-    except Exception as e:
-        print(f"Unexpected error altering nullability for {column}: {e}")
+        return # Cannot alter nullability easily in SQLite
+
+    # Let potential errors propagate to the main init_db handler
+    if allow_null:
+        cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL;")
+        print(f"Allowed NULLs for column '{column}' in table '{table}'.")
+    else:
+        # This part is tricky without knowing the default. Usually done via app logic.
+        # For now, we primarily use this to allow NULLs for password_hash.
+        # cursor.execute(f"UPDATE {table} SET {column} = <default_value> WHERE {column} IS NULL;")
+        # cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL;")
+        print(f"Note: Setting column '{column}' to NOT NULL is not automatically handled here.")
+        pass # Avoid trying to SET NOT NULL for now
 
 # --- User Data Model ---
 class User(UserMixin):
