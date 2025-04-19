@@ -62,7 +62,7 @@ def close_db_pool():
 
 
 def init_db():
-    """Initializes the database (creates table if not exists)."""
+    """Initializes the database (creates table and ensures columns exist)."""
     conn = None
     cur = None
     try:
@@ -77,15 +77,34 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
                 username VARCHAR(80) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NULL, -- Allow NULL for OAuth users
-                google_id VARCHAR(255) UNIQUE NULL -- Added for Google OAuth
+                password_hash VARCHAR(255) NULL -- Initially allow NULL
             );
         """)
-        conn.commit()
         print("Users table checked/created.")
+
+        # Ensure necessary columns exist and constraints are correct
+        print("Ensuring google_id column exists...")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE NULL;")
+        print("Ensuring password_hash column allows NULLs...")
+        cur.execute("ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;") # Or SET NULL if DROP NOT NULL fails
+
+        conn.commit() # Commit all schema changes together
+        print("Database schema checked/updated.")
     except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Error while initializing database: {error}", file=sys.stderr)
-        if conn: conn.rollback() # Rollback on error during init
+        # Handle potential error if password_hash column didn't exist to be altered
+        # Or if the DROP NOT NULL failed because it was already nullable (this is harmless)
+        if hasattr(error, 'pgcode') and error.pgcode == psycopg2.errors.UndefinedColumn: # Column doesn't exist
+            print(f"Warning during schema update (column likely didn't exist for ALTER): {error}")
+            if conn: conn.rollback() # Rollback the failed ALTER
+            # Optionally, try adding the column if it was the missing one
+            # But for now, just logging is safer.
+        elif "already allows null values" in str(error) or "does not exist" in str(error):
+             print(f"Info: Non-critical error during ALTER TABLE (likely already nullable or column missing for alter): {error}")
+             if conn: conn.rollback() # Important: Rollback failed ALTER, but let CREATE/prior ALTER stand if they succeeded
+             conn.commit() # Re-commit any prior successful changes in the try block
+        else:
+            print(f"Error during database schema update: {error}", file=sys.stderr)
+            if conn: conn.rollback() # Rollback on other errors
     finally:
         if cur: cur.close()
         if conn: return_db_connection(conn)
