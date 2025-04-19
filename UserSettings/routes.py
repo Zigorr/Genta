@@ -53,4 +53,20 @@ def confirm_subscription():
         flash('An error occurred while updating your subscription status. Please contact support.', 'error')
         
     # Redirect back to the main settings page to see the updated status
+    return redirect(url_for('settings.view_settings'))
+
+# NEW route to simulate subscription cancellation
+@settings_bp.route('/cancel_subscription', methods=['POST']) # Accept only POST
+@login_required
+def cancel_subscription():
+    """Simulates subscription cancellation and updates user status."""
+    user_id = current_user.id
+    success = set_user_subscription(user_id, False) # Set is_subscribed to False
+    
+    if success:
+        flash('Subscription cancelled successfully. Access will revert to free tier after the current simulated period.', 'info')
+    else:
+        flash('An error occurred while cancelling your subscription. Please contact support.', 'error')
+        
+    # Redirect back to the main settings page to see the updated status
     return redirect(url_for('settings.view_settings')) 

@@ -36,6 +36,7 @@ class Config:
 
     # Free Tier Configuration
     FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 200))
+    TOKEN_RESET_INTERVAL_MINUTES = int(os.getenv("TOKEN_RESET_INTERVAL_MINUTES", 5))
 
     @staticmethod
     def init_app(app):

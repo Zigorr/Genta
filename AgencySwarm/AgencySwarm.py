@@ -4,6 +4,8 @@ import sys
 import traceback
 import io                 # Added for capturing stdout
 import contextlib         # Added for redirecting stdout
+import datetime # Added
+from datetime import timezone, timedelta # Added
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 import tiktoken
@@ -17,7 +19,7 @@ from MonitorCEO.MonitorCEO import MonitorCEO
 from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 
 # Import database functions
-from Database.database_manager import get_user_token_details, update_token_usage, add_chat_message
+from Database.database_manager import get_user_token_details, update_token_usage, add_chat_message, reset_tokens
 
 # Define the Blueprint for API routes related to the agency
 # Using url_prefix='/api' will make routes like /api/chat
@@ -92,27 +94,94 @@ def create_agency():
 @_api_bp.route('/chat', methods=['POST'], endpoint='agency_chat')
 @login_required # Protect the API endpoint
 def chat_api():
-    # --- Token Limit Check ---
     user_id = current_user.id
     token_details = get_user_token_details(user_id)
-    token_limit = current_app.config.get('FREE_TIER_TOKEN_LIMIT', 200)
     encoding = get_tokenizer_encoding()
 
     if not encoding:
          return jsonify({"error": "Token processing unavailable. Please try again later."}), 500
-
-    if token_details and not token_details['is_subscribed']:
-        if token_details['tokens_used'] >= token_limit:
-            print(f"User {user_id} reached token limit ({token_details['tokens_used']} >= {token_limit})")
-            # Return a specific structure indicating limit reached
-            return jsonify({
-                "limit_reached": True,
-                "message": f"You have reached your free token limit of {token_limit}."
-            }), 403 # 403 Forbidden is appropriate
-    elif not token_details:
-         # Should not happen for a logged-in user, but handle defensively
+    if not token_details:
          print(f"Error: Could not retrieve token details for logged-in user {user_id}")
          return jsonify({"error": "Could not verify user usage details."}), 500
+
+    # --- Check and Apply Token Reset --- 
+    if not token_details['is_subscribed']:
+        last_reset_time = token_details.get('last_token_reset')
+        reset_interval_minutes = current_app.config.get('TOKEN_RESET_INTERVAL_MINUTES', 5)
+        
+        # Ensure last_reset_time is timezone-aware (it should be if stored as TIMESTAMPTZ)
+        # If it's missing or None (e.g., old user row before column added), force reset
+        needs_reset = False
+        if last_reset_time:
+            now_utc = datetime.datetime.now(timezone.utc)
+            time_since_reset = now_utc - last_reset_time
+            if time_since_reset > timedelta(minutes=reset_interval_minutes):
+                needs_reset = True
+        else:
+            # No previous reset time found, trigger reset
+            needs_reset = True 
+            
+        if needs_reset:
+            print(f"User {user_id} token reset interval ({reset_interval_minutes} min) passed. Resetting tokens.")
+            reset_success = reset_tokens(user_id)
+            if reset_success:
+                # IMPORTANT: Re-fetch details after reset
+                print(f"Re-fetching token details for user {user_id} after reset.")
+                token_details = get_user_token_details(user_id)
+                if not token_details:
+                     print(f"Error: Could not re-fetch token details after reset for user {user_id}")
+                     # Fail safe? Or proceed assuming reset worked?
+                     # Let's return an error to be safe.
+                     return jsonify({"error": "Error applying token reset. Please try again."}), 500
+            else:
+                 print(f"Error: Failed to reset tokens for user {user_id}. Proceeding without reset.")
+                 # Decide how to handle - maybe proceed with old token count?
+                 # For now, we log the error and continue; the limit check below will use the old count.
+
+    # --- Token Limit Check --- 
+    token_limit = current_app.config.get('FREE_TIER_TOKEN_LIMIT', 200)
+    if not token_details['is_subscribed']:
+        if token_details['tokens_used'] >= token_limit:
+            print(f"User {user_id} reached token limit ({token_details['tokens_used']} >= {token_limit})")
+            
+            # --- Calculate Time Remaining --- 
+            time_remaining_str = "soon" # Default message
+            next_reset_timestamp_iso = None
+            reset_interval_minutes = current_app.config.get('TOKEN_RESET_INTERVAL_MINUTES', 5)
+            last_reset_time = token_details.get('last_token_reset')
+
+            if last_reset_time:
+                # Ensure last_reset_time is offset-aware UTC
+                if last_reset_time.tzinfo is None:
+                     # If somehow it's naive, assume UTC (though TIMESTAMPTZ should prevent this)
+                     last_reset_time = last_reset_time.replace(tzinfo=timezone.utc)
+                
+                next_reset_time = last_reset_time + timedelta(minutes=reset_interval_minutes)
+                now_utc = datetime.datetime.now(timezone.utc)
+                time_remaining = next_reset_time - now_utc
+                next_reset_timestamp_iso = next_reset_time.isoformat()
+
+                if time_remaining.total_seconds() > 0:
+                    total_seconds = int(time_remaining.total_seconds())
+                    minutes = total_seconds // 60
+                    seconds = total_seconds % 60
+                    if minutes > 0:
+                        time_remaining_str = f"in approximately {minutes} minute(s) and {seconds} second(s)"
+                    else:
+                        time_remaining_str = f"in approximately {seconds} second(s)"
+                else:
+                    time_remaining_str = "very shortly (on your next request)"
+            else:
+                # Should ideally not happen if column has default, but handle anyway
+                time_remaining_str = "on your next request"
+
+            limit_message = f"You have reached your free token limit of {token_limit}. Your tokens will reset {time_remaining_str}."
+            
+            return jsonify({
+                "limit_reached": True,
+                "message": limit_message,
+                "next_reset_at": next_reset_timestamp_iso # Optional: send timestamp for potential frontend timer
+            }), 403
 
     # --- Proceed with Agency Interaction ---
     agency = create_agency()

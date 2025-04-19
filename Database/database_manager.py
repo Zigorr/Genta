@@ -86,6 +86,7 @@ def init_db():
                     id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT,
                     google_id TEXT UNIQUE, tokens_used INTEGER DEFAULT 0 NOT NULL,
                     is_subscribed BOOLEAN DEFAULT FALSE NOT NULL,
+                    last_token_reset TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
                     CONSTRAINT password_or_google_id CHECK (password_hash IS NOT NULL OR google_id IS NOT NULL)
                 );
                 """)
@@ -103,7 +104,8 @@ def init_db():
             columns_to_ensure = [
                 ('google_id', 'TEXT UNIQUE'),
                 ('tokens_used', 'INTEGER DEFAULT 0 NOT NULL'),
-                ('is_subscribed', 'BOOLEAN DEFAULT FALSE NOT NULL')
+                ('is_subscribed', 'BOOLEAN DEFAULT FALSE NOT NULL'),
+                ('last_token_reset', 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL')
             ]
             if IS_POSTGRES: # Assumes PG 9.6+
                  for col_name, col_type in columns_to_ensure:
@@ -246,13 +248,14 @@ def _ensure_password_hash_nullable(conn, cursor, table):
 # --- User Data Model ---
 class User(UserMixin):
     """Represents a user in the system, compatible with Flask-Login."""
-    def __init__(self, id, username, password_hash=None, google_id=None, tokens_used=0, is_subscribed=False):
+    def __init__(self, id, username, password_hash=None, google_id=None, tokens_used=0, is_subscribed=False, last_token_reset=None):
         self.id = id
         self.username = username
         self.password_hash = password_hash
         self.google_id = google_id
         self.tokens_used = tokens_used
         self.is_subscribed = is_subscribed
+        self.last_token_reset = last_token_reset
 
     def get_id(self):
         # Flask-Login requires get_id to return a string
@@ -266,7 +269,7 @@ def get_user_by_id(user_id):
     try:
         with conn.cursor() as cur:
             # Fetch all needed columns for User object, including new ones
-            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed FROM users WHERE id = %s", (user_id,))
+            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed, last_token_reset FROM users WHERE id = %s", (user_id,))
             return cur.fetchone()
     finally:
         release_db_connection(conn)
@@ -277,7 +280,7 @@ def get_user_by_username(username):
     try:
         with conn.cursor() as cur:
             # Fetch all needed columns for User object, including new ones
-            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed FROM users WHERE username = %s", (username,))
+            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed, last_token_reset FROM users WHERE username = %s", (username,))
             return cur.fetchone()
     finally:
         release_db_connection(conn)
@@ -288,7 +291,7 @@ def get_user_by_google_id(google_id):
     try:
         with conn.cursor() as cur:
              # Fetch all needed columns for User object, including new ones
-            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed FROM users WHERE google_id = %s", (google_id,))
+            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed, last_token_reset FROM users WHERE google_id = %s", (google_id,))
             return cur.fetchone()
     finally:
         release_db_connection(conn)
@@ -328,10 +331,10 @@ def get_user_token_details(user_id):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT tokens_used, is_subscribed FROM users WHERE id = %s", (user_id,))
+            cur.execute("SELECT tokens_used, is_subscribed, last_token_reset FROM users WHERE id = %s", (user_id,))
             result = cur.fetchone()
             if result:
-                return {"tokens_used": result[0], "is_subscribed": result[1]}
+                return {"tokens_used": result[0], "is_subscribed": result[1], "last_token_reset": result[2]}
             else:
                 return None # User not found
     except Exception as e:
@@ -425,4 +428,22 @@ def set_user_subscription(user_id, status):
         return False
     finally:
         if conn:
-            release_db_connection(conn) 
+            release_db_connection(conn)
+
+# NEW function to reset tokens and update timestamp
+def reset_tokens(user_id):
+    conn = get_db_connection()
+    if not conn: print(f"ERROR: Could not get DB connection to reset tokens for user {user_id}.", file=sys.stderr); return False
+    sql = "UPDATE users SET tokens_used = 0, last_token_reset = CURRENT_TIMESTAMP WHERE id = %s"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (user_id,))
+            conn.commit()
+            print(f"Tokens reset for user {user_id}.")
+            return True
+    except Exception as e:
+        print(f"Error resetting tokens for user {user_id}: {e}", file=sys.stderr)
+        conn.rollback()
+        return False
+    finally:
+        if conn: release_db_connection(conn) 
