@@ -1,8 +1,8 @@
 # Use the full official Python runtime as a parent image
 FROM python:3.11
 
-# Add a build argument that can be changed to break the cache
-ARG FORCE_REBUILD=4 # Increment this value to force a rebuild
+# Add a build argument that can be changed externally to break the cache
+ARG CACHE_DATE=notset
 
 # Set environment variables to prevent Python from writing pyc files and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -29,7 +29,9 @@ COPY agency.py .
 # ARG CACHEBUST=1
 
 # Install dependencies from requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# Use the ARG in an echo statement to help invalidate the cache
+RUN echo "Cache bust arg: ${CACHE_DATE}" && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Explicitly install gunicorn in a separate step
 RUN pip install gunicorn
