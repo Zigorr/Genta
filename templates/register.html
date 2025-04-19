@@ -1,25 +1,62 @@
-<!doctype html>
-<html>
-<head><title>Register</title></head>
-<body>
-  <h1>Register</h1>
-   {# Display flashed messages #}
-   {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      <ul class=flashes>
-      {% for message in messages %}
-        <li>{{ message }}</li>
-      {% endfor %}
-      </ul>
-    {% endif %}
-  {% endwith %}
+{% extends "base.html" %}
 
-  <form method="post">
-    Username: <input type="text" name="username" required><br>
-    Password: <input type="password" name="password" required><br>
-    <input type="submit" value="Register">
-  </form>
-   {# Use blueprint name prefix 'auth.' for url_for #}
-   <p>Already have an account? <a href="{{ url_for('auth.login') }}">Login here</a></p>
-</body>
-</html> 
+{% block title %}Register{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Register</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('auth.register') }}">
+        {{ form.hidden_tag() }}
+        <div class="form-group">
+            {{ form.username.label }}
+            {{ form.username(class="form-control") }}
+            {% if form.username.errors %}
+                {% for error in form.username.errors %}
+                    <span class="error">{{ error }}</span>
+                {% endfor %}
+            {% endif %}
+        </div>
+        <div class="form-group">
+            {{ form.password.label }}
+            {{ form.password(class="form-control") }}
+            {% if form.password.errors %}
+                {% for error in form.password.errors %}
+                    <span class="error">{{ error }}</span>
+                {% endfor %}
+            {% endif %}
+        </div>
+        <div class="form-group">
+            {{ form.confirm_password.label }}
+            {{ form.confirm_password(class="form-control") }}
+             {% if form.confirm_password.errors %}
+                {% for error in form.confirm_password.errors %}
+                    <span class="error">{{ error }}</span>
+                {% endfor %}
+            {% endif %}
+        </div>
+        <button type="submit" class="btn btn-primary">Register</button>
+    </form>
+
+    <hr> {# Optional separator #}
+
+    <p style="text-align: center; margin-top: 1em;">Or sign up using:</p>
+    <div style="text-align: center;">
+        <a href="{{ url_for('auth.google.login') }}" class="btn btn-google">
+            {# You might want to add a Google icon here later #}
+            <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512" style="vertical-align: middle; margin-right: 8px;"><path fill="currentColor" d="M488 261.8C488 403.3 381.5 512 244 512 109.8 512 0 402.2 0 256S109.8 0 244 0c71.3 0 129.4 25.7 179.4 70.2 20.8 18.3 39.1 36.6 53.2 56.3l-63.8 51.9C340.8 130.8 300.3 108.5 244 108.5c-76.3 0-137.9 61.5-137.9 137.9s61.5 137.9 137.9 137.9c85.3 0 111.9-58.2 118.1-87.8H244v-71.4h236.5c1.1 12.2 1.7 24.7 1.7 37.5z"/></svg>
+            Sign up with Google
+        </a>
+    </div>
+
+    <p style="margin-top: 1em;">Already have an account? <a href="{{ url_for('auth.login') }}">Login here</a></p>
+</div>
+{% endblock %} 
