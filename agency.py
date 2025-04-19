@@ -133,8 +133,8 @@ if os.getenv("OAUTHLIB_INSECURE_TRANSPORT") == "1":
 google_bp = make_google_blueprint(
     scope=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
     redirect_to="google_logged_in_handler", # Redirect to a custom handler after auth
-    login_url="/login/google", # Optional: Customize login url if needed
-    authorized_url="/login/google/authorized" # Optional: Customize if needed
+    login_url="google", # REMOVED leading slash - should combine with url_prefix
+    authorized_url="google/authorized" # REMOVED leading slash - should combine with url_prefix
 )
 app.register_blueprint(google_bp, url_prefix="/login") # Register blueprint
 
