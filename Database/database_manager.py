@@ -7,208 +7,252 @@ from flask import current_app # Import current_app
 from flask_login import UserMixin # Needed for the User class
 # Removed load_dotenv, config loaded by app factory
 # from dotenv import load_dotenv
+import sqlite3
+import traceback
 
 # --- Configuration & Constants ---
 # load_dotenv(override=True) # Removed
-# DATABASE_URL = os.getenv("DATABASE_URL") # Removed
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///mydatabase.db") # Default to SQLite if not set
+IS_POSTGRES = DATABASE_URL.startswith("postgres")
 
 # --- Database Setup ---
-db_pool = None
+pool = None
 
-def get_db_connection():
-    """Gets a connection from the pool."""
-    global db_pool
-    if db_pool is None:
-        # Get DATABASE_URL from Flask app config
-        database_url = current_app.config.get('DATABASE_URL')
-        if not database_url:
-            # Log error using current_app logger if available, or print
-            log_msg = "Error: DATABASE_URL not found in Flask app configuration."
-            try: current_app.logger.error(log_msg)
-            except RuntimeError: print(log_msg, file=sys.stderr)
-            return None
+def init_connection_pool():
+    global pool
+    if IS_POSTGRES and not pool:
         try:
             print("Initializing database connection pool...")
-            db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=database_url)
+            # Ensure max_connections is reasonable, e.g., 5-10 for most apps
+            pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
             print("Database connection pool initialized.")
-        except (Exception, psycopg2.DatabaseError) as error:
-            log_msg = f"Error while initializing database pool: {error}"
-            try: current_app.logger.error(log_msg)
-            except RuntimeError: print(log_msg, file=sys.stderr)
-            return None
+        except psycopg2.OperationalError as e:
+            print(f"ERROR: Could not connect to PostgreSQL database: {e}", file=sys.stderr)
+            # Optionally exit or raise a custom exception if DB is critical at startup
+            # sys.exit(1)
+            pool = None # Ensure pool is None if init fails
+        except Exception as e:
+            print(f"ERROR: Unexpected error initializing connection pool: {e}", file=sys.stderr)
+            pool = None
+    elif not IS_POSTGRES:
+        print("Using SQLite, connection pool not applicable.")
 
-    # Get a connection from the pool
-    try:
-        conn = db_pool.getconn()
-        if not conn:
-            print("Error: Failed to get connection from pool.", file=sys.stderr)
-            return None # Or raise an exception
-        return conn
-    except (Exception, psycopg2.pool.PoolError) as error:
-         print(f"Error getting connection from pool: {error}", file=sys.stderr)
-         return None
+def get_db_connection():
+    """Gets a connection from the pool (PostgreSQL) or creates one (SQLite)."""
+    if IS_POSTGRES:
+        if not pool:
+            # Attempt to re-initialize if accessed before successful init or after failure
+            init_connection_pool()
+            if not pool:
+                raise ConnectionError("Database connection pool is not available.")
+        return pool.getconn()
+    else:
+        return sqlite3.connect(DATABASE_URL.split("///")[1]) # Get filename from URL
 
+def release_db_connection(conn):
+    """Releases a connection back to the pool (PostgreSQL) or closes it (SQLite)."""
+    if IS_POSTGRES and pool:
+        pool.putconn(conn)
+    elif conn:
+        conn.close()
 
-def return_db_connection(conn):
-    """Returns a connection to the pool."""
-    if db_pool and conn:
-        try:
-            db_pool.putconn(conn)
-        except (Exception, psycopg2.pool.PoolError) as error:
-             print(f"Error returning connection to pool: {error}", file=sys.stderr)
-
-
-def close_db_pool():
-    """Closes all connections in the pool."""
-    global db_pool
-    if db_pool:
-        print("Closing database connection pool.")
-        db_pool.closeall()
-        db_pool = None
+def close_connection_pool():
+    global pool
+    if IS_POSTGRES and pool:
+        print("Closing database connection pool...")
+        pool.closeall()
+        pool = None
+        print("Database connection pool closed.")
 
 
 def init_db():
-    """Initializes the database (creates table and ensures columns exist)."""
-    conn = None
-    cur = None
+    """Initializes the database and creates the users table if it doesn't exist."""
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
-        if not conn:
-            print("Failed to get DB connection for init_db.", file=sys.stderr)
-            return # Cannot proceed without connection
-
-        cur = conn.cursor()
-        print("Creating users table if it doesn't exist...")
-        cur.execute("""
+        with conn.cursor() as cur:
+            print("Creating users table if it doesn't exist...")
+            # Use TEXT for password_hash and google_id for flexibility
+            # Add tokens_used and is_subscribed columns
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
-                username VARCHAR(80) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NULL -- Initially allow NULL
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT,
+                google_id TEXT UNIQUE,
+                tokens_used INTEGER DEFAULT 0 NOT NULL,
+                is_subscribed BOOLEAN DEFAULT FALSE NOT NULL,
+                CONSTRAINT password_or_google_id CHECK (password_hash IS NOT NULL OR google_id IS NOT NULL)
             );
-        """)
-        print("Users table checked/created.")
+            """)
+            # Add indices for faster lookups
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id);")
 
-        # Ensure necessary columns exist and constraints are correct
-        print("Ensuring google_id column exists...")
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE NULL;")
-        print("Ensuring password_hash column allows NULLs...")
-        cur.execute("ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;") # Or SET NULL if DROP NOT NULL fails
+            # Add columns if they don't exist (for existing databases)
+            print("Ensuring google_id column exists...")
+            _add_column_if_not_exists(cur, 'users', 'google_id', 'TEXT UNIQUE')
 
-        conn.commit() # Commit all schema changes together
-        print("Database schema checked/updated.")
-    except (Exception, psycopg2.DatabaseError) as error:
-        # Handle potential error if password_hash column didn't exist to be altered
-        # Or if the DROP NOT NULL failed because it was already nullable (this is harmless)
-        # Check specific SQLSTATE code for Undefined Column (42703)
-        if hasattr(error, 'pgcode') and error.pgcode == '42703':
-            print(f"Warning during schema update (column likely didn't exist for ALTER): {error}")
-            if conn: conn.rollback() # Rollback the failed ALTER
-            # Optionally, try adding the column if it was the missing one
-            # But for now, just logging is safer.
-        elif "already allows null values" in str(error) or "does not exist" in str(error):
-             print(f"Info: Non-critical error during ALTER TABLE (likely already nullable or column missing for alter): {error}")
-             if conn: conn.rollback() # Important: Rollback failed ALTER, but let CREATE/prior ALTER stand if they succeeded
-             conn.commit() # Re-commit any prior successful changes in the try block
-        else:
-            print(f"Error during database schema update: {error}", file=sys.stderr)
-            if conn: conn.rollback() # Rollback on other errors
+            print("Ensuring password_hash column allows NULLs...")
+            _alter_column_nullability(cur, 'users', 'password_hash', True)
+
+            print("Ensuring tokens_used column exists...")
+            _add_column_if_not_exists(cur, 'users', 'tokens_used', 'INTEGER DEFAULT 0 NOT NULL')
+
+            print("Ensuring is_subscribed column exists...")
+            _add_column_if_not_exists(cur, 'users', 'is_subscribed', 'BOOLEAN DEFAULT FALSE NOT NULL')
+
+            conn.commit()
+            print("Database schema checked/updated.")
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR during database initialization: {e}", file=sys.stderr)
+        traceback.print_exc()
     finally:
-        if cur: cur.close()
-        if conn: return_db_connection(conn)
+        release_db_connection(conn)
 
+def _add_column_if_not_exists(cursor, table, column, col_type):
+    """Helper to add a column if it doesn't exist."""
+    try:
+        cursor.execute(f"SELECT {column} FROM {table} LIMIT 1;")
+    except (psycopg2.errors.UndefinedColumn, sqlite3.OperationalError):
+        # Column doesn't exist, add it
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type};")
+        print(f"Added column '{column}' to table '{table}'.")
+
+def _alter_column_nullability(cursor, table, column, allow_null):
+    """Helper to change nullability (PostgreSQL only for direct SET/DROP NOT NULL)."""
+    if not IS_POSTGRES:
+        # SQLite requires complex table rebuild, often easier to handle in model/app logic
+        # print(f"Note: Altering NULL constraint on '{column}' for SQLite requires table rebuild.")
+        return
+    try:
+        # Check current nullability (This is a bit complex, maybe just try the ALTER)
+        # Instead, just try setting or dropping the constraint
+        if allow_null:
+            cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL;")
+            print(f"Allowed NULLs for column '{column}' in table '{table}'.")
+        else:
+            # Ensure existing NULLs are handled before adding NOT NULL
+            cursor.execute(f"UPDATE {table} SET {column} = <default_value> WHERE {column} IS NULL;") # Replace <default_value> appropriately
+            cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL;")
+            print(f"Set NOT NULL for column '{column}' in table '{table}'.")
+    except (psycopg2.errors.UndefinedColumn, psycopg2.errors.InvalidTableDefinition) as e:
+         print(f"Could not alter nullability for {column}: {e}") # Might fail if column doesn't exist or other issues
+    except psycopg2.errors.NotNullViolation as e:
+         print(f"Could not SET NOT NULL for {column}, existing NULLs? Error: {e}")
+    except Exception as e:
+        print(f"Unexpected error altering nullability for {column}: {e}")
 
 # --- User Data Model ---
 class User(UserMixin):
     """Represents a user in the system, compatible with Flask-Login."""
-    def __init__(self, id, username, password_hash):
+    def __init__(self, id, username, password_hash=None, google_id=None, tokens_used=0, is_subscribed=False):
         self.id = id
         self.username = username
         self.password_hash = password_hash
+        self.google_id = google_id
+        self.tokens_used = tokens_used
+        self.is_subscribed = is_subscribed
+
+    def get_id(self):
+        # Flask-Login requires get_id to return a string
+        return str(self.id)
 
 
 # --- User Management Functions ---
 
 def get_user_by_id(user_id):
-    """Fetches a user from the database by their ID."""
-    conn = None
-    cur = None
-    user_data = None
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
-        if not conn: return None
-        cur = conn.cursor()
-        cur.execute("SELECT id, username, password_hash FROM users WHERE id = %s", (user_id,))
-        user_data = cur.fetchone()
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Error fetching user by ID: {error}", file=sys.stderr)
+        with conn.cursor() as cur:
+            # Fetch all needed columns for User object, including new ones
+            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed FROM users WHERE id = %s", (user_id,))
+            return cur.fetchone()
     finally:
-        if cur: cur.close()
-        if conn: return_db_connection(conn)
-    # Return tuple directly (id, username, password_hash) or None
-    return user_data
+        release_db_connection(conn)
 
 
 def get_user_by_username(username):
-    """Fetches a user from the database by their username."""
-    conn = None
-    cur = None
-    user_data = None
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
-        if not conn: return None
-        cur = conn.cursor()
-        # Select google_id as well
-        cur.execute("SELECT id, username, password_hash, google_id FROM users WHERE username = %s", (username,))
-        user_data = cur.fetchone()
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Error fetching user by username: {error}", file=sys.stderr)
+        with conn.cursor() as cur:
+            # Fetch all needed columns for User object, including new ones
+            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed FROM users WHERE username = %s", (username,))
+            return cur.fetchone()
     finally:
-        if cur: cur.close()
-        if conn: return_db_connection(conn)
-    # Return tuple directly (id, username, password_hash, google_id) or None
-    return user_data
+        release_db_connection(conn)
 
 
 def get_user_by_google_id(google_id):
-    """Fetches a user from the database by their Google ID."""
-    conn = None
-    cur = None
-    user_data = None
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
-        if not conn: return None
-        cur = conn.cursor()
-        # Select all needed fields for the User object
-        cur.execute("SELECT id, username, password_hash FROM users WHERE google_id = %s", (google_id,))
-        user_data = cur.fetchone()
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Error fetching user by Google ID: {error}", file=sys.stderr)
+        with conn.cursor() as cur:
+             # Fetch all needed columns for User object, including new ones
+            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed FROM users WHERE google_id = %s", (google_id,))
+            return cur.fetchone()
     finally:
-        if cur: cur.close()
-        if conn: return_db_connection(conn)
-    return user_data
+        release_db_connection(conn)
 
 
 def add_user(username, password_hash=None, google_id=None):
-    """Adds a new user to the database. Can handle regular or OAuth users."""
-    conn = None
-    cur = None
-    success = False
-    new_user_id = None # To return the ID of the newly created user
+    # Basic validation
+    if not username or (password_hash is None and google_id is None):
+        print("Error: Username and either password or google_id are required to add user.")
+        return False, None
+
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
-        if not conn: return False, None
-        cur = conn.cursor()
-        # Use RETURNING id to get the new user's ID
-        cur.execute("INSERT INTO users (username, password_hash, google_id) VALUES (%s, %s, %s) RETURNING id",
-                    (username, password_hash, google_id))
-        new_user_id = cur.fetchone()[0] # Get the returned ID
-        conn.commit()
-        success = True
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Error adding user: {error}", file=sys.stderr)
-        if conn: conn.rollback() # Rollback on error
+        with conn.cursor() as cur:
+            # Insert user with default values for new columns
+            cur.execute("INSERT INTO users (username, password_hash, google_id) VALUES (%s, %s, %s) RETURNING id",
+                        (username, password_hash, google_id))
+            new_user_id = cur.fetchone()[0]
+            conn.commit()
+            return True, new_user_id # Return success and new ID
+    except (psycopg2.errors.UniqueViolation, sqlite3.IntegrityError) as e:
+        # Handle cases where username or google_id might already exist
+        conn.rollback()
+        print(f"Database integrity error adding user '{username}': {e}")
+        return False, None # Indicate failure
+    except Exception as e:
+        conn.rollback()
+        print(f"Unexpected error adding user '{username}': {e}")
+        traceback.print_exc()
+        return False, None # Indicate failure
     finally:
-        if cur: cur.close()
-        if conn: return_db_connection(conn)
-    return success, new_user_id # Return success status and the new user's ID 
+        release_db_connection(conn)
+
+
+# NEW function to get specific user details needed for checks
+def get_user_token_details(user_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT tokens_used, is_subscribed FROM users WHERE id = %s", (user_id,))
+            result = cur.fetchone()
+            if result:
+                return {"tokens_used": result[0], "is_subscribed": result[1]}
+            else:
+                return None # User not found
+    except Exception as e:
+        print(f"Error getting user token details for {user_id}: {e}")
+        return None # Return None on error
+    finally:
+        release_db_connection(conn)
+
+
+# NEW function to update token usage
+def update_token_usage(user_id, tokens_increment):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Use atomic update
+            cur.execute("UPDATE users SET tokens_used = tokens_used + %s WHERE id = %s", (tokens_increment, user_id))
+            conn.commit()
+            return True # Indicate success
+    except Exception as e:
+        conn.rollback()
+        print(f"Error updating token usage for user {user_id}: {e}")
+        return False # Indicate failure
+    finally:
+        release_db_connection(conn) 

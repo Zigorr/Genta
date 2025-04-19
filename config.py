@@ -34,6 +34,9 @@ class Config:
     DEBUG = False
     TESTING = False
 
+    # Free Tier Configuration
+    FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 200))
+
     @staticmethod
     def init_app(app):
         # Perform any initialization based on config if needed
