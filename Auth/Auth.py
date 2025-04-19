@@ -56,10 +56,10 @@ def create_auth_blueprint(login_manager):
 
     # --- Google OAuth Setup within Auth ---
     # Create Google OAuth blueprint (specific to this auth module)
+    # Flask-Dance will automatically pick up client_id/secret from app.config later
     google_bp = make_google_blueprint(
-        # Get config from current_app instead of os.getenv
-        client_id=current_app.config.get("GOOGLE_OAUTH_CLIENT_ID"),
-        client_secret=current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET"),
+        # REMOVED client_id=current_app.config.get("GOOGLE_OAUTH_CLIENT_ID"),
+        # REMOVED client_secret=current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET"),
         scope=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
         redirect_to="auth.google_logged_in_handler", # Use blueprint name
         login_url="/google", # Relative to blueprint prefix
