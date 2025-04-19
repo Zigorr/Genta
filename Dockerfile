@@ -22,12 +22,14 @@ COPY requirements.txt .
 # If using Poetry:
 # COPY pyproject.toml poetry.lock* ./
 
+# Copy a frequently changing file before install to bust cache reliably
+COPY agency.py .
+
 # Remove the previous cache-busting ARG
 # ARG CACHEBUST=1
 
 # Install dependencies from requirements.txt
-RUN echo \"Forcing rebuild with arg: 5\" && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Explicitly install gunicorn in a separate step
 RUN pip install gunicorn
