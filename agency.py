@@ -2,7 +2,7 @@
 
 import os
 from app import create_app # Import the app factory
-from flask_bootstrap import Bootstrap
+# from flask_bootstrap import Bootstrap # No longer needed here
 
 # Get config name from environment or use default
 # This is mainly for the __main__ block below
@@ -12,8 +12,8 @@ config_name = os.getenv('FLASK_ENV') or 'default'
 # Note: Gunicorn uses wsgi.py, not this instance directly
 app = create_app(config_name)
 
-# Initialize Flask-Bootstrap
-Bootstrap(app)
+# Initialize Flask-Bootstrap - MOVED TO create_app() in app/__init__.py
+# Bootstrap(app)
 
 # --- Main Entry Point --- (For running with 'python agency.py')
 if __name__ == "__main__":
