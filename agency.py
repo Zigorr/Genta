@@ -133,10 +133,11 @@ if os.getenv("OAUTHLIB_INSECURE_TRANSPORT") == "1":
 google_bp = make_google_blueprint(
     scope=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
     redirect_to="google_logged_in_handler", # Redirect to a custom handler after auth
-    login_url="google", # REMOVED leading slash - should combine with url_prefix
-    authorized_url="google/authorized" # REMOVED leading slash - should combine with url_prefix
+    login_url="/login/google", # Use absolute path
+    authorized_url="/login/google/authorized" # Use absolute path
 )
-app.register_blueprint(google_bp, url_prefix="/login") # Register blueprint
+# app.register_blueprint(google_bp, url_prefix="/login") # REMOVED url_prefix
+app.register_blueprint(google_bp) # Register at root
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -357,21 +358,6 @@ def chat_api():
 # @app.before_request
 # def protect_gradio_mount():
 #     ...
-
-# --- Debug Route for Google Login ---
-@app.route("/_debug/google_login")
-def debug_google_login():
-    # Generate the URL that the google.login endpoint would redirect to
-    # _external=True is crucial to get the full URL including https
-    try:
-        google_login_url = url_for('google.login', _external=True)
-        print(f"DEBUG: Generated Google Login URL: {google_login_url}")
-        # Perform the actual redirect
-        return redirect(google_login_url)
-    except Exception as e:
-        print(f"ERROR generating Google login URL: {e}")
-        flash("Error initiating Google Login. Check server logs.", "error")
-        return redirect(url_for('login'))
 
 # --- Google OAuth Login Handler ---
 # This function runs after Google successfully authenticates the user
