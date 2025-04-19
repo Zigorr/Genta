@@ -403,4 +403,26 @@ def get_chat_history(user_id, limit=50):
         return [] # Return empty list on error
     finally:
         if conn:
+            release_db_connection(conn)
+
+# NEW function to update subscription status
+def set_user_subscription(user_id, status):
+    """Updates the subscription status for a user."""
+    conn = get_db_connection()
+    if not conn:
+        print(f"ERROR: Could not get DB connection to update subscription for user {user_id}.", file=sys.stderr)
+        return False
+    sql = "UPDATE users SET is_subscribed = %s WHERE id = %s"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (status, user_id))
+            conn.commit()
+            print(f"Subscription status for user {user_id} set to {status}.")
+            return True
+    except Exception as e:
+        print(f"Error updating subscription for user {user_id}: {e}", file=sys.stderr)
+        conn.rollback()
+        return False
+    finally:
+        if conn:
             release_db_connection(conn) 

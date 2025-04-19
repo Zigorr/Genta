@@ -1,10 +1,10 @@
 # UserSettings/routes.py
 
-from flask import render_template, url_for, redirect, current_app
+from flask import render_template, url_for, redirect, current_app, flash
 from flask_login import login_required, current_user
 
 from . import settings_bp
-from Database.database_manager import get_chat_history, get_user_token_details
+from Database.database_manager import get_chat_history, get_user_token_details, set_user_subscription
 
 @settings_bp.route('/')
 @login_required
@@ -37,4 +37,20 @@ def subscribe_page():
     """Placeholder route for the subscription page."""
     # In the future, this will integrate with a payment provider (e.g., Stripe)
     # For now, it can just render a simple template.
-    return render_template('subscribe.html') 
+    return render_template('subscribe.html')
+
+# NEW route to simulate successful subscription
+@settings_bp.route('/confirm_subscription')
+@login_required
+def confirm_subscription():
+    """Simulates a successful payment and updates user status."""
+    user_id = current_user.id
+    success = set_user_subscription(user_id, True) # Set is_subscribed to True
+    
+    if success:
+        flash('Subscription successful! You now have unlimited access.', 'success')
+    else:
+        flash('An error occurred while updating your subscription status. Please contact support.', 'error')
+        
+    # Redirect back to the main settings page to see the updated status
+    return redirect(url_for('settings.view_settings')) 

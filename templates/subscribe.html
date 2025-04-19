@@ -6,12 +6,24 @@
 <div class="container">
     <h2>Subscription Plans</h2>
     
-    <p>Details about subscription plans and payment integration (e.g., Stripe) will go here.</p>
+    <div class="plan">
+        <h3>Unlimited Access</h3>
+        <p class="price">$9.99 / month</p>
+        <p>Get unlimited tokens and full access to all features.</p>
+        
+        <hr>
 
-    {# Example Placeholder for Stripe Button #}
-    <!-- <button id="checkout-button">Checkout</button> -->
-    
-    <p style="margin-top: 20px;">For now, this is just a placeholder page.</p>
+        <p><strong>Simulation Only:</strong> Clicking the button below will simulate a successful payment and activate your subscription.</p>
+        <a href="{{ url_for('settings.confirm_subscription') }}" class="button button-primary">Simulate Successful Payment ($9.99)</a>
+        <p><small>Note: This is for demonstration purposes only. No actual payment will be processed.</small></p>
+        
+        {# Placeholder for Real Payment Integration (e.g., Stripe) #}
+        <!-- 
+        <form action="/create-checkout-session" method="POST">
+          <button type="submit" id="checkout-button">Checkout with Stripe</button>
+        </form> 
+        -->
+    </div>
 
     <a href="{{ url_for('settings.view_settings') }}" class="button button-secondary">Back to Settings</a>
 
@@ -20,7 +32,10 @@
 {# Add specific styles if needed #}
 <style>
   .container { max-width: 600px; margin: 20px auto; padding: 20px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+  .plan { border: 1px solid #ddd; padding: 20px; margin-bottom: 20px; border-radius: 5px; }
+  .price { font-size: 1.5em; font-weight: bold; color: #007bff; margin: 10px 0; }
   .button { display: inline-block; padding: 10px 15px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; text-align: center; margin-top: 10px; border: none; cursor: pointer; }
+  .button-primary { background-color: #28a745; } /* Green for confirm */
   .button-secondary { background-color: #6c757d; }
   .button:hover { opacity: 0.9; }
 </style>
