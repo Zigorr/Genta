@@ -19,6 +19,7 @@
     Password: <input type="password" name="password" required><br>
     <input type="submit" value="Register">
   </form>
-   <p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p>
+   {# Use blueprint name prefix 'auth.' for url_for #}
+   <p>Already have an account? <a href="{{ url_for('auth.login') }}">Login here</a></p>
 </body>
 </html> 
