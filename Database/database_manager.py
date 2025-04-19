@@ -66,80 +66,129 @@ def close_connection_pool():
 
 
 def init_db():
-    """Initializes the database and creates the users table if it doesn't exist."""
+    """Initializes the database and creates/updates the users table step-by-step."""
     conn = get_db_connection()
+    if not conn:
+        print("ERROR: Failed to get DB connection for init_db.", file=sys.stderr)
+        return # Cannot proceed
+
     try:
+        # Use a single cursor
         with conn.cursor() as cur:
-            print("Creating users table if it doesn't exist...")
-            # Use TEXT for password_hash and google_id for flexibility
-            # Add tokens_used and is_subscribed columns
-            cur.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT,
-                google_id TEXT UNIQUE,
-                tokens_used INTEGER DEFAULT 0 NOT NULL,
-                is_subscribed BOOLEAN DEFAULT FALSE NOT NULL,
-                CONSTRAINT password_or_google_id CHECK (password_hash IS NOT NULL OR google_id IS NOT NULL)
-            );
-            """)
-            # Add indices for faster lookups
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id);")
 
-            # Add columns if they don't exist (for existing databases)
-            print("Ensuring google_id column exists...")
-            _add_column_if_not_exists(cur, 'users', 'google_id', 'TEXT UNIQUE')
+            # Step 1: Create Table
+            try:
+                print("Step 1: Creating users table if it doesn't exist...")
+                cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT, google_id TEXT UNIQUE,
+                    tokens_used INTEGER DEFAULT 0 NOT NULL, is_subscribed BOOLEAN DEFAULT FALSE NOT NULL,
+                    CONSTRAINT password_or_google_id CHECK (password_hash IS NOT NULL OR google_id IS NOT NULL)
+                );
+                """)
+                conn.commit() # Commit this step
+                print("Step 1: Completed.")
+            except Exception as e:
+                print(f"Error during Step 1 (Create Table): {e}")
+                conn.rollback() # Rollback this step
+                raise # Re-raise to stop initialization
 
-            print("Ensuring password_hash column allows NULLs...")
-            _alter_column_nullability(cur, 'users', 'password_hash', True)
+            # Step 2: Create Indices
+            try:
+                print("Step 2: Creating indices...")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id);")
+                conn.commit() # Commit this step
+                print("Step 2: Completed.")
+            except Exception as e:
+                print(f"Error during Step 2 (Create Indices): {e}")
+                conn.rollback()
+                # Decide if index failure is critical - perhaps log and continue?
+                # For now, let's raise to be safe
+                raise
 
-            print("Ensuring tokens_used column exists...")
-            _add_column_if_not_exists(cur, 'users', 'tokens_used', 'INTEGER DEFAULT 0 NOT NULL')
+            # Step 3: Add google_id column
+            try:
+                print("Step 3: Ensuring google_id column exists...")
+                _add_column_if_not_exists(cur, 'users', 'google_id', 'TEXT UNIQUE')
+                conn.commit() # Commit this step
+                print("Step 3: Completed.")
+            except Exception as e:
+                print(f"Error during Step 3 (Add google_id): {e}")
+                conn.rollback()
+                raise
 
-            print("Ensuring is_subscribed column exists...")
-            _add_column_if_not_exists(cur, 'users', 'is_subscribed', 'BOOLEAN DEFAULT FALSE NOT NULL')
+            # Step 4: Alter password_hash nullability
+            try:
+                print("Step 4: Ensuring password_hash column allows NULLs...")
+                _alter_column_nullability(cur, 'users', 'password_hash', True)
+                conn.commit() # Commit this step
+                print("Step 4: Completed.")
+            except Exception as e:
+                # Check if the error is harmless (e.g., already nullable)
+                # psycopg2 error for trying to drop NOT NULL when already nullable might be specific
+                # For now, log and potentially continue if altering null fails, 
+                # as the app logic might handle it.
+                print(f"Warning during Step 4 (Alter password_hash): {e}")
+                conn.rollback() # Rollback the failed alter attempt
+                # Decide whether to continue or raise; let's continue for now.
+                # raise
 
-            conn.commit()
-            print("Database schema checked/updated.")
+            # Step 5: Add tokens_used column
+            try:
+                print("Step 5: Ensuring tokens_used column exists...")
+                _add_column_if_not_exists(cur, 'users', 'tokens_used', 'INTEGER DEFAULT 0 NOT NULL')
+                conn.commit() # Commit this step
+                print("Step 5: Completed.")
+            except Exception as e:
+                print(f"Error during Step 5 (Add tokens_used): {e}")
+                conn.rollback()
+                raise
+
+            # Step 6: Add is_subscribed column
+            try:
+                print("Step 6: Ensuring is_subscribed column exists...")
+                _add_column_if_not_exists(cur, 'users', 'is_subscribed', 'BOOLEAN DEFAULT FALSE NOT NULL')
+                conn.commit() # Commit this step
+                print("Step 6: Completed.")
+            except Exception as e:
+                print(f"Error during Step 6 (Add is_subscribed): {e}")
+                conn.rollback()
+                raise
+
+            print("Database schema fully checked/updated.")
+
     except Exception as e:
-        conn.rollback()
-        print(f"ERROR during database initialization: {e}", file=sys.stderr)
+        # This catches errors re-raised from the inner steps
+        print(f"ERROR during database initialization sequence: {e}", file=sys.stderr)
         traceback.print_exc()
+        # No need to rollback here, inner steps handle it before raising
+
     finally:
-        release_db_connection(conn)
+        if conn:
+            release_db_connection(conn)
 
 def _add_column_if_not_exists(cursor, table, column, col_type):
-    """Helper to add a column if it doesn't exist."""
+    """Helper to add a column if it doesn't exist. Lets errors propagate."""
     try:
-        # Try selecting the column
         cursor.execute(f"SELECT {column} FROM {table} LIMIT 1;")
+        print(f"Column '{column}' already exists.") # Added log
     except (psycopg2.errors.UndefinedColumn, sqlite3.OperationalError):
-        # Expected error: Column doesn't exist, so add it
-        print(f"Attempting to add column '{column}' to table '{table}'.")
-        # We are already in an exception handler, let potential errors 
-        # during ALTER TABLE propagate to the main init_db handler.
+        print(f"Column '{column}' not found, adding...")
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type};")
-        print(f"Successfully added column '{column}'.")
-    # Let any other unexpected database errors propagate up to init_db
+        print(f"Added column '{column}'.")
+    # Let other potential errors (e.g., during ALTER) propagate
 
 def _alter_column_nullability(cursor, table, column, allow_null):
-    """Helper to change nullability (PostgreSQL only for direct SET/DROP NOT NULL)."""
+    """Helper to change nullability (PostgreSQL only). Lets errors propagate."""
     if not IS_POSTGRES:
-        return # Cannot alter nullability easily in SQLite
-
-    # Let potential errors propagate to the main init_db handler
+        return
     if allow_null:
+        # This might fail if already nullable, but we catch it in init_db now
+        print(f"Attempting to allow NULLs for {column}...")
         cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL;")
-        print(f"Allowed NULLs for column '{column}' in table '{table}'.")
-    else:
-        # This part is tricky without knowing the default. Usually done via app logic.
-        # For now, we primarily use this to allow NULLs for password_hash.
-        # cursor.execute(f"UPDATE {table} SET {column} = <default_value> WHERE {column} IS NULL;")
-        # cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL;")
-        print(f"Note: Setting column '{column}' to NOT NULL is not automatically handled here.")
-        pass # Avoid trying to SET NOT NULL for now
+        print(f"Allowed NULLs for column '{column}'.")
+    # else: pass (don't handle SET NOT NULL for now)
 
 # --- User Data Model ---
 class User(UserMixin):
