@@ -85,6 +85,21 @@ def create_auth_blueprint(login_manager):
 
     return _auth_bp
 
+# --- Intermediate Google Routes to Set Intent ---
+
+@_auth_bp.route('/google/start_login')
+def google_start_login():
+    session['google_action'] = 'login'
+    # Redirect to the actual Flask-Dance Google endpoint
+    # The endpoint name is 'google.login' relative to the main auth blueprint
+    return redirect(url_for("google.login")) 
+
+@_auth_bp.route('/google/start_register')
+def google_start_register():
+    session['google_action'] = 'register'
+    # Redirect to the actual Flask-Dance Google endpoint
+    return redirect(url_for("google.login"))
+
 # --- Authentication Routes (Defined within the Blueprint) ---
 
 @_auth_bp.route('/login', methods=['GET', 'POST'])
@@ -172,6 +187,7 @@ def _process_google_login(google_info):
     """Processes user info obtained from Google, finds/creates user, returns redirect."""
     google_user_id = str(google_info["sub"])
     email = google_info.get("email")
+    action = session.pop('google_action', 'login') # Get and remove action, default to login
 
     if not email:
         flash("Google account does not have an email associated.", category="error")
@@ -187,7 +203,14 @@ def _process_google_login(google_info):
         # Case 1: Google account already linked
         user = User(id=user_data[0], username=user_data[1], password_hash=user_data[2])
         print(f"Found existing user by Google ID: {user.id}")
-        login_message = "Welcome back! Logged in with Google."
+        
+        # *** Check intent if user exists ***
+        if action == 'register':
+            flash("You already have an account linked with Google. Please sign in.", category="info")
+            return redirect(url_for(".login"))
+        else:
+            login_message = "Welcome back! Logged in with Google."
+
     else:
         # 2. Check if user exists by email (but not linked to this Google ID)
         existing_user_by_email = get_user_by_username(email)
@@ -198,7 +221,6 @@ def _process_google_login(google_info):
                 flash("An account already exists with this email, but it's not linked to Google. Please log in with your password.", category="warning")
                 return redirect(url_for(".login"))
             # Edge case: email matches but google ID doesn't? Should be rare.
-            # Treat as potentially suspicious or error, redirect to login.
             else:
                 flash("Account email matches, but Google ID does not. Please contact support or log in manually.", category="error")
                 return redirect(url_for(".login"))
@@ -214,10 +236,11 @@ def _process_google_login(google_info):
                 flash("Failed to create a new user account from Google profile.", category="error")
                 return redirect(url_for(".login"))
 
-    # Log in user and redirect (if user object was created/found)
+    # Log in user and redirect (if user object was created/found and not redirected earlier)
     if user:
         login_user(user) # Consider adding remember=True if desired
-        flash(login_message, category=login_category)
+        if login_message: # Only flash if we didn't redirect earlier
+             flash(login_message, category=login_category)
         next_url = session.pop('_flashed_next_url', None) or url_for('index')
         return redirect(next_url)
     else:
