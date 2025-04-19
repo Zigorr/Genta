@@ -11,6 +11,9 @@ ENV PYTHONUNBUFFERED 1
 # Set the working directory in the container
 WORKDIR /app
 
+# Add ARG here to bust cache for requirements copy
+ARG FORCE_REQ_COPY=1
+
 # Install system dependencies that might be needed (optional, add if specific libraries require them)
 # RUN apt-get update && apt-get install -y --no-install-recommends some-package && rm -rf /var/lib/apt/lists/*
 
