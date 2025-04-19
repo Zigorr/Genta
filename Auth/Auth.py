@@ -1,6 +1,8 @@
 # Auth/Auth.py
 
 import os
+import re # Added import for regex in register
+import traceback # Added import for exception logging
 from flask import (
     Blueprint, request, render_template, redirect, url_for, flash, session,
     current_app # Import current_app to access config
@@ -11,6 +13,7 @@ from flask_login import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_dance.contrib.google import make_google_blueprint, google
 from flask_dance.consumer import oauth_authorized, oauth_error
+import sys
 
 # Import database functions and User model from the Database module
 # Assumes Database module is at the same level as Auth
@@ -61,7 +64,9 @@ def create_auth_blueprint(login_manager):
     google_bp = make_google_blueprint(
         scope=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
         login_url="/google", # Relative to blueprint prefix
-        authorized_url="/google/authorized" # Relative to blueprint prefix
+        authorized_url="/google/authorized", # Relative to blueprint prefix
+        # Explicitly define redirect URL after authorization is complete
+        redirect_url=url_for("auth.google_callback", _external=True)
     )
     # Register Google blueprint *within* the auth blueprint
     _auth_bp.register_blueprint(google_bp, url_prefix="/login", name="google") # Give nested blueprint a name
@@ -137,21 +142,9 @@ def logout():
 
 # --- Google OAuth Handlers (within the Blueprint) ---
 
-@oauth_authorized.connect_via("google") # Connect via name given to nested blueprint
-def google_logged_in_handler(blueprint, token):
-    print("DEBUG: Entered google_logged_in_handler!") # Check if function is called
-    if not token:
-        flash("Failed to log in with Google.", category="error")
-        return redirect(url_for(".login")) # Use relative .login
-
-    resp = blueprint.session.get("/oauth2/v3/userinfo")
-    if not resp.ok:
-        msg = "Failed to fetch user info from Google."
-        flash(msg, category="error")
-        print(f"Error fetching user info: {resp.status_code} - {resp.text}")
-        return redirect(url_for(".login"))
-
-    google_info = resp.json()
+# Helper function to process the user data after callback
+def _process_google_login(google_info):
+    """Processes user info obtained from Google, finds/creates user, returns redirect."""
     google_user_id = str(google_info["sub"])
     email = google_info.get("email")
 
@@ -159,23 +152,20 @@ def google_logged_in_handler(blueprint, token):
         flash("Google account does not have an email associated.", category="error")
         return redirect(url_for(".login"))
 
+    # Find/create user logic
     user_data = get_user_by_google_id(google_user_id)
     user = None
     if user_data:
-        # Use correct indices based on get_user_by_google_id returning (id, username, password_hash)
         user = User(id=user_data[0], username=user_data[1], password_hash=user_data[2])
         print(f"Found existing user by Google ID: {user.id}")
     else:
         existing_user_by_email = get_user_by_username(email)
-        # Correct index for google_id is 3
         if existing_user_by_email and existing_user_by_email[3] is None:
-             flash("An account with this email already exists, but is not linked to a Google account. Please login using your password or register differently.", category="warning")
-             return redirect(url_for(".login"))
-        # Correct index for google_id is 3
+            flash("An account with this email already exists...", category="warning")
+            return redirect(url_for(".login"))
         elif existing_user_by_email and existing_user_by_email[3] == google_user_id:
-             # Use correct indices based on get_user_by_username returning (id, username, password_hash, google_id)
-             user = User(id=existing_user_by_email[0], username=existing_user_by_email[1], password_hash=existing_user_by_email[2])
-             print(f"Found existing user by email matching Google ID: {user.id}")
+            user = User(id=existing_user_by_email[0], username=existing_user_by_email[1], password_hash=existing_user_by_email[2])
+            print(f"Found existing user by email matching Google ID: {user.id}")
         else:
             print(f"Creating new user for Google ID {google_user_id} with email {email}")
             success, new_user_id = add_user(username=email, google_id=google_user_id)
@@ -185,25 +175,55 @@ def google_logged_in_handler(blueprint, token):
             else:
                 flash("Failed to create a new user account from Google profile.", category="error")
                 return redirect(url_for(".login"))
-
+    
+    # Log in user and redirect
     if user:
         login_user(user)
         flash("Successfully logged in with Google.")
-        next_url = session.pop('_flashed_next_url', None) or url_for('index') # Main index
+        next_url = session.pop('_flashed_next_url', None) or url_for('index')
         return redirect(next_url)
     else:
         flash("Could not log you in with Google.", category="error")
         return redirect(url_for(".login"))
 
+# NEW: Explicit callback route
+@_auth_bp.route("/google/callback")
+def google_callback():
+    print("DEBUG: Entered /google/callback route")
+    try:
+        # Manually complete the authorization and get token
+        token = google.authorized_response()
+        if not token:
+            flash("Failed to authorize with Google (no token). Try again.", category="error")
+            print("ERROR: No token received from google.authorized_response()")
+            return redirect(url_for(".login"))
+        print(f"DEBUG: Received token: {token}")
 
-@oauth_error.connect_via("google") # Connect via name given to nested blueprint
-def google_oauth_error(blueprint, error, error_description=None, error_uri=None):
-    msg = (
-        "OAuth error from {name}! "
-        "error={error} description={description} uri={uri}"
-    ).format(
-        name=blueprint.name, error=error, description=error_description, uri=error_uri,
-    )
-    print(f"OAuth Error: {msg}")
-    flash(msg, category="error")
-    return redirect(url_for(".login")) 
+        # Fetch user info using the token
+        resp = google.get("/oauth2/v3/userinfo")
+        if not resp.ok:
+            msg = "Failed to fetch user info from Google."
+            flash(msg, category="error")
+            print(f"Error fetching user info: {resp.status_code} - {resp.text}")
+            return redirect(url_for(".login"))
+        
+        google_info = resp.json()
+        print(f"DEBUG: Received google_info: {google_info}")
+
+        # Process login/registration using the helper function
+        return _process_google_login(google_info)
+
+    except Exception as e:
+        # Use the imported traceback module correctly
+        print(f"ERROR in google_callback: {e}", file=sys.stderr) # Need import sys
+        traceback.print_exc()
+        flash("An error occurred during Google login. Please try again.", category="error")
+        return redirect(url_for(".login"))
+
+# --- Authentication Routes (Defined within the Blueprint) ---
+# ... (login, register, logout routes)
+
+
+# REMOVED Signal Handlers
+# @oauth_authorized.connect_via("google") ...
+# @oauth_error.connect_via("google") ... 
