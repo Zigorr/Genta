@@ -3,85 +3,333 @@
 <head>
     <title>Website Monitor Agency</title>
     <style>
-        body { font-family: sans-serif; margin: 20px; }
-        #chatbox { height: 500px; width: 100%; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
-        .message { margin-bottom: 10px; padding: 5px; border-radius: 5px; word-wrap: break-word; }
-        .user { background-color: #e1f5fe; text-align: right; margin-left: 40px;}
-        .assistant { background-color: #f1f1f1; margin-right: 40px; }
-        #input-area { display: flex; }
-        #input-area input { flex-grow: 1; padding: 10px; margin-right: 10px; }
-        #input-area button { padding: 10px; }
-        #logout { position: absolute; top: 10px; right: 10px; }
-        .error { color: red; font-style: italic; }
+        /* Basic Reset & Body */
+        body, html { height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #e0e0e0; }
+        body { display: flex; }
+        * { box-sizing: border-box; }
+
+        /* Sidebar Styles */
+        #sidebar { width: 260px; background-color: #1e1e1e; display: flex; flex-direction: column; height: 100vh; border-right: 1px solid #303030; }
+        #new-chat-button { display: block; padding: 12px 15px; margin: 15px; background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 5px; text-align: center; cursor: pointer; text-decoration: none; font-size: 0.9em; transition: background-color 0.2s ease; }
+        #new-chat-button:hover { background-color: #3a3a3a; border-color: #555; }
+        #conversation-list { flex-grow: 1; overflow-y: auto; padding: 0 10px 10px 10px; }
+        #conversation-list::-webkit-scrollbar { width: 6px; }
+        #conversation-list::-webkit-scrollbar-thumb { background-color: #444; border-radius: 3px; }
+        #conversation-list::-webkit-scrollbar-track { background-color: transparent; }
+
+        .conversation-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; margin-bottom: 5px; border-radius: 5px; cursor: pointer; font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px solid transparent; transition: background-color 0.2s ease, border-color 0.2s ease; color: #ccc; }
+        .conversation-item:hover { background-color: #2f2f2f; border-color: #444; }
+        .conversation-item.active { background-color: #3f3f3f; border-color: #555; color: #fff; }
+        .conversation-title { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; margin-right: 10px; }
+        .delete-convo-button { background: none; border: none; color: #777; cursor: pointer; font-size: 1.1em; padding: 0 5px; display: none; transition: color 0.2s ease; }
+        .conversation-item:hover .delete-convo-button { display: inline; }
+        .delete-convo-button:hover { color: #ff6b6b; }
+        #user-nav-bottom { padding: 15px; border-top: 1px solid #303030; font-size: 0.9em; }
+        #user-nav-bottom a { color: #aaa; text-decoration: none; display: block; margin-top: 8px; padding: 5px 0; transition: color 0.2s ease; }
+        #user-nav-bottom a:hover { color: #fff; }
+
+        /* Main Chat Area Styles */
+        #main-content { flex-grow: 1; display: flex; flex-direction: column; height: 100vh; background-color: #121212; /* Match body background */ }
+        #chat-container { display: flex; flex-direction: column; height: 100%; }
+        #chatbox { flex-grow: 1; overflow-y: auto; padding: 20px; background-color: #121212; /* Match main background */ }
+        #chatbox::-webkit-scrollbar { width: 8px; }
+        #chatbox::-webkit-scrollbar-thumb { background-color: #444; border-radius: 4px; }
+        #chatbox::-webkit-scrollbar-track { background-color: transparent; }
+
+        .message { margin-bottom: 15px; padding: 10px 15px; border-radius: 18px; max-width: 75%; word-wrap: break-word; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .user { background-color: #007bff; /* Brighter blue for dark mode */ color: white; text-align: left; margin-left: auto; border-bottom-right-radius: 4px; }
+        .assistant { background-color: #303030; /* Darker grey bubble */ color: #e0e0e0; text-align: left; margin-right: auto; border-bottom-left-radius: 4px; }
+
+        /* System/Error messages are still hidden by JS/Backend, but keep classes for potential future use */
+        .system-message { display: none; }
+        .assistant-error { display: none; }
+
+        #input-area { display: flex; padding: 15px; border-top: 1px solid #303030; background-color: #1e1e1e; }
+        #input-area input { flex-grow: 1; padding: 12px; margin-right: 10px; border-radius: 18px; border: 1px solid #444; background-color: #2a2a2a; color: #e0e0e0; font-size: 1em; }
+        #input-area input:focus { outline: none; border-color: #007bff; background-color: #303030; }
+        #input-area button { padding: 10px 18px; border-radius: 18px; border: none; background-color: #007bff; color: white; cursor: pointer; font-size: 1em; transition: background-color 0.2s ease; }
+        #input-area button:hover { background-color: #0056b3; }
+        #input-area button:disabled { background-color: #555; color: #aaa; cursor: not-allowed; }
+
+        #subscribe-section { padding: 10px 20px; border-top: 1px solid #303030; background-color: #3a3d3e; color: #e0e0e0; text-align: center; font-size: 0.9em; }
+        .button-subscribe { background-color: #17a2b8; color: white; padding: 5px 10px; border-radius: 4px; text-decoration: none; display: inline-block; margin-left: 10px; transition: background-color 0.2s ease; }
+        .button-subscribe:hover { background-color: #138496; }
+
+        /* Utility */
+        .hidden { display: none; }
+
     </style>
 </head>
 <body>
-    <h1>Website Monitor Agency</h1>
-    <div id="logout"><a href="{{ url_for('auth.logout') }}">Logout</a></div>
-
-    <div id="chatbox">
-        <!-- Chat messages will appear here -->
+    <!-- Sidebar -->
+    <div id="sidebar">
+        <a href="#" id="new-chat-button">+ New Chat</a>
+        <div id="conversation-list">
+            <!-- Conversation items will be populated by Jinja -->
+             {% if conversations %}
+                {% for convo in conversations %}
+                    <div class="conversation-item" data-id="{{ convo.id }}">
+                        <span class="conversation-title" title="{{ convo.title }}">{{ convo.title }}</span>
+                        <button class="delete-convo-button" data-id="{{ convo.id }}" title="Delete Chat">&times;</button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+        <div id="user-nav-bottom">
+             {% if current_user and current_user.is_authenticated %}
+                 <a href="{{ url_for('settings.view_settings') }}" title="Settings">⚙️ {{ current_user.first_name }} {{ current_user.last_name }} Settings</a>
+             {% endif %}
+             <a href="{{ url_for('auth.logout') }}">🚪 Logout</a>
+        </div>
     </div>
 
-    <form id="input-area">
-        <input type="text" id="message-input" placeholder="Enter task (e.g., monitor URL X with selector Y)" autocomplete="off">
-        <button type="submit">Send</button>
-    </form>
+    <!-- Main Chat Area -->
+    <div id="main-content">
+        <div id="chat-container">
+            <!-- Removed Header -->
+            <div id="chatbox">
+                <!-- Initial messages (if any specific convo loaded server-side, otherwise empty) -->
+                {% if history %}
+                    {% for message in history %}
+                        {% if message[3] == 'user' or message[3] == 'assistant' %}
+                            {% set role_class = message[3] %}
+                            <div class="message {{ role_class }}">
+                                {{ message[4] }}
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                {% else %}
+                    <div style="text-align:center; color: #888; margin-top: 50px;">Select a conversation or start a new one.</div>
+                {% endif %}
+                <!-- New messages will be added by JavaScript below this -->
+            </div>
+
+            <div id="subscribe-section" class="hidden" style="padding: 10px;">
+                <!-- Content will be added by JavaScript -->
+            </div>
+
+            <form id="input-area">
+                <input type="text" id="message-input" placeholder="Enter task..." autocomplete="off">
+                <button type="submit" id="send-button">Send</button>
+            </form>
+        </div>
+    </div>
 
     <script>
         const chatbox = document.getElementById('chatbox');
         const messageInput = document.getElementById('message-input');
         const inputForm = document.getElementById('input-area');
+        const sendButton = document.getElementById('send-button');
+        const subscribeSection = document.getElementById('subscribe-section');
+        const conversationList = document.getElementById('conversation-list');
+        const newChatButton = document.getElementById('new-chat-button');
 
+        let currentConversationId = null; // State for current conversation ID
+        let isLoading = false; // Prevent multiple simultaneous loads
+
+        // Function to add message bubble (only user/assistant)
         function addMessage(role, text) {
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message', role);
-            // Basic sanitization to prevent HTML injection - createTextNode is safe
-            const textNode = document.createTextNode(text);
-            messageDiv.appendChild(textNode);
-            chatbox.appendChild(messageDiv);
-            chatbox.scrollTop = chatbox.scrollHeight; // Scroll to bottom
+            if (role === 'user' || role === 'assistant') {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message', role);
+                const textNode = document.createTextNode(text);
+                messageDiv.appendChild(textNode);
+                chatbox.appendChild(messageDiv);
+                chatbox.scrollTop = chatbox.scrollHeight;
+            }
         }
 
-        inputForm.addEventListener('submit', async (event) => {
-            event.preventDefault(); // Prevent default form submission
-            const message = messageInput.value.trim();
-            if (!message) return;
+        // Function to set loading state
+        function setLoading(loading) {
+            isLoading = loading;
+            messageInput.disabled = loading;
+            sendButton.disabled = loading;
+            if (loading) {
+                 sendButton.textContent = '...'; // Indicate loading
+            } else {
+                 sendButton.textContent = 'Send';
+                 messageInput.focus();
+            }
+        }
 
-            addMessage('user', message);
-            messageInput.value = ''; // Clear input
-            messageInput.disabled = true; // Disable input while waiting
+        // Function to update sidebar visual selection
+        function setActiveConversation(conversationId) {
+             document.querySelectorAll('.conversation-item').forEach(item => {
+                 if (item.dataset.id === String(conversationId)) {
+                     item.classList.add('active');
+                 } else {
+                     item.classList.remove('active');
+                 }
+             });
+        }
+
+        // Function to load messages for a conversation
+        async function loadConversation(conversationId) {
+             if (isLoading || !conversationId) return;
+             console.log("Loading conversation:", conversationId);
+             setLoading(true);
+             chatbox.innerHTML = ''; // Clear existing messages
+             currentConversationId = conversationId;
+             setActiveConversation(conversationId);
+             subscribeSection.classList.add('hidden'); // Hide subscribe notice
+             // Optionally update URL: history.pushState({}, '', '/chat/' + conversationId);
+
+             try {
+                const response = await fetch(`/api/conversations/${conversationId}/messages`);
+                const messages = await response.json(); // Must await json()
+                if (!response.ok) {
+                    throw new Error(messages.error || `Failed to load messages: ${response.status}`);
+                }
+                messages.forEach(msg => addMessage(msg.role, msg.content));
+             } catch (error) {
+                 console.error("Error loading conversation history:", error);
+                 alert(`Failed to load chat history: ${error.message}`);
+                 // Optionally add an error message to chatbox if desired
+                 // addMessage('error', `Failed to load chat history: ${error.message}`);
+             } finally {
+                  setLoading(false);
+                  chatbox.scrollTop = chatbox.scrollHeight; // Scroll to bottom after loading
+             }
+        }
+
+        // Function to handle deleting a conversation
+        async function deleteConversation(conversationId, listItemElement) {
+            if (!conversationId || !listItemElement) return;
+            if (!confirm('Are you sure you want to delete this chat?')) return;
+
+            console.log("Deleting conversation:", conversationId);
+             // Disable button temporarily?
 
             try {
-                const response = await fetch("{{ url_for('agency_api.agency_chat') }}", {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ message: message })
+                const response = await fetch(`/api/conversations/${conversationId}`, {
+                    method: 'DELETE'
+                    // Add headers if needed (e.g., CSRF token)
                 });
-
-                const data = await response.json(); // Try to parse JSON regardless of status
-
+                const result = await response.json(); // Must await json()
                 if (!response.ok) {
-                    // Display error from JSON if available, otherwise use status text
-                    const errorText = data.error || `HTTP error! status: ${response.status} ${response.statusText}`;
-                    throw new Error(errorText);
+                     throw new Error(result.error || `Failed to delete: ${response.status}`);
                 }
-
-                addMessage('assistant', data.response);
-
+                console.log("Delete successful");
+                // Remove item from sidebar
+                listItemElement.remove();
+                // If the deleted convo was the active one, clear the chat area
+                if (currentConversationId === conversationId) {
+                     currentConversationId = null;
+                     chatbox.innerHTML = '<div style="text-align:center; color: #888; margin-top: 50px;">Select a conversation or start a new one.</div>';
+                     setActiveConversation(null);
+                }
             } catch (error) {
-                console.error('Error fetching/processing chat response:', error);
-                // Display a user-friendly error message
-                addMessage('assistant error', `Sorry, an error occurred: ${error.message}. Please check server logs if possible.`);
-            } finally {
-                 messageInput.disabled = false; // Re-enable input
-                 messageInput.focus();
+                 console.error("Error deleting conversation:", error);
+                 alert(`Failed to delete conversation: ${error.message}`);
+            }
+        }
+
+        // Event Listener for clicking on conversations in the list
+        conversationList.addEventListener('click', (event) => {
+            const target = event.target;
+            // Handle clicks on the delete button
+            if (target.classList.contains('delete-convo-button')) {
+                const convoId = target.dataset.id;
+                const listItem = target.closest('.conversation-item');
+                deleteConversation(parseInt(convoId), listItem);
+                return; // Stop further processing
+            }
+            // Handle clicks on the conversation item itself (but not delete button)
+            const conversationItem = target.closest('.conversation-item');
+            if (conversationItem && !target.classList.contains('delete-convo-button')) {
+                const conversationId = conversationItem.dataset.id;
+                if (conversationId && currentConversationId !== parseInt(conversationId)) {
+                    loadConversation(parseInt(conversationId));
+                }
             }
         });
 
-        // Initial focus
+        // Event Listener for the New Chat button
+        newChatButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            console.log("Starting new chat");
+            currentConversationId = null;
+            chatbox.innerHTML = '<div style="text-align:center; color: #888; margin-top: 50px;">Send a message to start a new conversation.</div>';
+            setActiveConversation(null);
+            messageInput.focus();
+            subscribeSection.classList.add('hidden');
+            // Optionally update URL: history.pushState({}, '', '/');
+        });
+
+        // Event Listener for sending a message
+        inputForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const message = messageInput.value.trim();
+            if (!message || isLoading) return;
+
+            addMessage('user', message);
+            messageInput.value = '';
+            setLoading(true);
+            subscribeSection.classList.add('hidden');
+
+            try {
+                const payload = { message: message };
+                if (currentConversationId) {
+                    payload.conversation_id = currentConversationId;
+                }
+
+                const response = await fetch("{{ url_for('agency_api.agency_chat') }}", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', },
+                    body: JSON.stringify(payload)
+                });
+
+                let data = {};
+                try { data = await response.json(); } catch (jsonError) { throw new Error(`HTTP error: ${response.status}`); }
+
+                // Update state and potentially sidebar if it was a new conversation
+                if (data.conversation_id && data.is_new_conversation) {
+                    const newConvoId = data.conversation_id;
+                    currentConversationId = newConvoId;
+                    setActiveConversation(newConvoId);
+                    
+                    // --- Add new conversation to sidebar dynamically --- 
+                    const newConvoItem = document.createElement('div');
+                    newConvoItem.classList.add('conversation-item', 'active');
+                    newConvoItem.dataset.id = newConvoId;
+                    
+                    // Generate title client-side (similar to backend logic)
+                    // Count existing items (excluding potential placeholder)
+                    const existingConvoCount = conversationList.querySelectorAll('.conversation-item').length;
+                    const newTitle = `Chat ${existingConvoCount}`; 
+                    
+                    newConvoItem.innerHTML = `
+                        <span class="conversation-title" title="${newTitle}">${newTitle}</span>
+                        <button class="delete-convo-button" data-id="${newConvoId}" title="Delete Chat">&times;</button>
+                    `;
+                    conversationList.prepend(newConvoItem); // Add to top
+                    // Optionally update URL: history.pushState({}, '', '/chat/' + newConvoId);
+                } else if (data.conversation_id) {
+                     currentConversationId = data.conversation_id; // Ensure ID is set
+                }
+
+                if (response.status === 403 && data.limit_reached === true) {
+                    console.warn("Token Limit Message:", data.message);
+                    subscribeSection.innerHTML = `<p>${data.message}</p><p>You can subscribe for unlimited access.</p><a href="/settings/subscribe" class="button button-subscribe">Subscribe</a>`;
+                    subscribeSection.classList.remove('hidden');
+                } else if (!response.ok) {
+                    const errorText = data.error || `API Error: ${response.status}`;
+                    console.error("API Error:", errorText);
+                    alert(`Sorry, an error occurred: ${errorText}`);
+                    // Don't re-throw here, allow UI to recover
+                } else {
+                    addMessage('assistant', data.response);
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert(`An error occurred while sending your message.`);
+            } finally {
+                 setLoading(false);
+                 chatbox.scrollTop = chatbox.scrollHeight;
+            }
+        });
+
+        // Initial setup
         messageInput.focus();
 
     </script>

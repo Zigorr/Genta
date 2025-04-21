@@ -1,4 +1,5 @@
 # Auth/__init__.py
+# This file makes the Auth directory a Python package.
 
 # Import the factory function from the main module file
 from .Auth import create_auth_blueprint

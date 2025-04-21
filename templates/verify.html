@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Verify Email{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Verify Your Email Address</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <p>A 4-digit verification code has been sent to <strong>{{ email }}</strong>. Please enter it below to activate your account. The code will expire in 15 minutes.</p>
+
+    <form method="POST" action="{{ url_for('auth.verify_email', email=email) }}">
+        {{ form.hidden_tag() }}
+        <div class="form-group">
+            {{ form.code.label }}
+            {{ form.code(class="form-control", placeholder="Enter 4-digit code", autofocus=true, inputmode="numeric", pattern="[0-9]*", maxlength="4") }}
+            {% if form.code.errors %}
+                {% for error in form.code.errors %}
+                    <span class="error">{{ error }}</span>
+                {% endfor %}
+            {% endif %}
+        </div>
+        {{ form.submit(class="btn btn-primary") }}
+    </form>
+
+    {# Add a form to resend the code #}
+    <form method="POST" action="{{ url_for('auth.resend_verification') }}" style="margin-top: 1em;">
+        <input type="hidden" name="email" value="{{ email }}">
+        <button type="submit" class="btn btn-link p-0">Didn't receive the code? Resend</button>
+    </form>
+    
+    <p style="margin-top: 1em;">Changed your mind? <a href="{{ url_for('auth.logout') }}">Logout</a></p>
+</div>
+{% endblock %} 

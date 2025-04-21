@@ -13,6 +13,8 @@ gunicorn>=20.0.0 # Production WSGI server
 Flask-Dance>=3 # Added for OAuth
 Flask-WTF>=1.0.0 # Or a specific version if needed
 Flask-Dance[google]>=7.0.0 # Or a specific version if needed
+Flask-Bootstrap
+Flask-Mail>=0.9.1 # Added for email verification
 
 # Database
 psycopg2-binary>=2.9.0 # PostgreSQL adapter
@@ -27,3 +29,20 @@ beautifulsoup4>=4.0.0 # For HTML parsing
 # selenium-stealth
 # webdriver-manager
 # playwright 
+
+# Payment Processing
+stripe>=8.0.0 # Or a more recent version 
+
+# Added from the code block
+Flask-Session
+Flask-SQLAlchemy
+Flask-Login
+psycopg2-binary # For PostgreSQL
+SQLAlchemy
+Flask-Dance[google] # OAuthLib, Requests[security] included
+Flask-Bootstrap # For Bootstrap integration (replace or remove if not using)
+python-dotenv # For loading environment variables
+Flask-Mail # For sending emails
+itsdangerous # For token generation (often needed with Flask-Login/WTF)
+Flask-WTF # Required for FlaskForm
+email-validator # ADDED: Required by WTForms Email validator 
