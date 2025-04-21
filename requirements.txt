@@ -32,3 +32,17 @@ beautifulsoup4>=4.0.0 # For HTML parsing
 
 # Payment Processing
 stripe>=8.0.0 # Or a more recent version 
+
+# Added from the code block
+Flask-Session
+Flask-SQLAlchemy
+Flask-Login
+psycopg2-binary # For PostgreSQL
+SQLAlchemy
+Flask-Dance[google] # OAuthLib, Requests[security] included
+Flask-Bootstrap # For Bootstrap integration (replace or remove if not using)
+python-dotenv # For loading environment variables
+Flask-Mail # For sending emails
+itsdangerous # For token generation (often needed with Flask-Login/WTF)
+Flask-WTF # Required for FlaskForm
+email-validator # ADDED: Required by WTForms Email validator 
