@@ -1,188 +1,126 @@
-/* static/style.css */
-:root {
-  --body-bg: #1f2937; /* Dark Gray */
-  --container-bg: #374151; /* Medium Gray */
-  --text-color: #f3f4f6; /* Light Gray */
-  --input-bg: #4b5563; /* Gray */
-  --input-border: #6b7280; /* Gray */
-  --button-primary-bg: #3b82f6; /* Blue */
-  --button-primary-hover-bg: #2563eb;
-  --button-secondary-bg: #6b7280; /* Gray */
-  --button-secondary-hover-bg: #4b5563;
-  --link-color: #60a5fa; /* Light Blue */
-  --error-color: #f87171; /* Red */
-  --warning-color: #facc15; /* Yellow */
-  --success-color: #4ade80; /* Green */
+/* static/style.css - Base Dark Mode Styles */
+
+body, html {
+    height: 100%;
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #1e1e1e; /* Dark background */
+    color: #e0e0e0; /* Light text */
 }
 
-body {
-  font-family: sans-serif;
-  background-color: var(--body-bg);
-  color: var(--text-color);
-  margin: 0;
-  padding: 20px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
+* {
+    box-sizing: border-box;
 }
 
 .container {
-  background-color: var(--container-bg);
-  padding: 30px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  max-width: 400px;
-  width: 100%;
+    max-width: 500px;
+    margin: 40px auto;
+    padding: 30px;
+    background-color: #2a2a2a; /* Slightly lighter dark background for content */
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
-h1, h2 {
-  text-align: center;
-  margin-bottom: 25px;
-  color: var(--text-color);
+h2 {
+    text-align: center;
+    color: #ffffff;
+    margin-bottom: 25px;
 }
 
 .form-group {
-  margin-bottom: 15px;
+    margin-bottom: 20px;
 }
 
-label {
-  display: block;
-  margin-bottom: 5px;
-  font-weight: bold;
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #cccccc; /* Lighter grey for labels */
+    font-weight: bold;
 }
 
-input[type=\"text\"],
-input[type=\"password\"],
-input[type=\"email\"] {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--input-border);
-  border-radius: 4px;
-  background-color: var(--input-bg);
-  color: var(--text-color);
-  box-sizing: border-box; /* Include padding and border in element's total width and height */
+.form-control {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #444;
+    border-radius: 4px;
+    background-color: #333;
+    color: #e0e0e0;
+    font-size: 1em;
 }
 
-input[type=\"text\"]:focus,
-input[type=\"password\"]:focus,
-input[type=\"email\"]:focus {
-  outline: none;
-  border-color: var(--button-primary-bg);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+.form-control:focus {
+    outline: none;
+    border-color: #007bff;
+    background-color: #404040;
 }
 
-button, .button {
-  display: inline-block; /* Changed to inline-block for better control */
-  width: 100%;
-  padding: 12px;
-  border: none;
-  border-radius: 4px;
-  color: white;
-  font-size: 16px;
-  cursor: pointer;
-  text-align: center;
-  text-decoration: none; /* For link styled as button */
-  transition: background-color 0.2s ease;
-  box-sizing: border-box;
-  margin-top: 5px; /* Add slight top margin */
+button, .button, .btn {
+    display: inline-block;
+    padding: 12px 20px;
+    border-radius: 4px;
+    border: none;
+    background-color: #007bff;
+    color: white !important; /* Ensure button text is white */
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+    font-size: 1em;
+    transition: background-color 0.2s ease;
+    width: 100%; /* Make buttons full width by default */
+    margin-top: 10px;
 }
 
-.button-primary {
-  background-color: var(--button-primary-bg);
+button:hover, .button:hover, .btn:hover {
+    background-color: #0056b3;
+    opacity: 1; /* Override potential opacity styles */
 }
 
-.button-primary:hover {
-  background-color: var(--button-primary-hover-bg);
-}
-
-.button-secondary {
-  background-color: var(--button-secondary-bg);
-}
-
-.button-secondary:hover {
-  background-color: var(--button-secondary-hover-bg);
-}
-
-.button-google {
-    background-color: #ffffff; /* White background */
-    color: #4b5563; /* Dark text */
-    border: 1px solid var(--input-border);
-    display: flex; /* Use flexbox for alignment */
-    align-items: center;
-    justify-content: center;
-    gap: 8px; /* Space between icon and text */
-}
-
-.button-google:hover {
-    background-color: #f3f4f6; /* Light gray hover */
-}
-
-.button-google img { /* Style for potential Google icon */
-    height: 18px;
-    width: 18px;
-}
-
-
-.text-center {
-  text-align: center;
-}
-
-.mt-2 {
-    margin-top: 10px; /* Smaller margin top */
-}
-
-.mt-3 {
-    margin-top: 15px;
-}
-
-.mt-4 {
-    margin-top: 20px;
+button:disabled, .button:disabled, .btn:disabled {
+    background-color: #555;
+    color: #aaa !important;
+    cursor: not-allowed;
 }
 
 a {
-  color: var(--link-color);
-  text-decoration: none;
+    color: #4dabf7; /* Light blue links */
+    text-decoration: none;
 }
 
 a:hover {
-  text-decoration: underline;
+    text-decoration: underline;
 }
 
 /* Flash Messages */
-.flash-messages {
-    list-style: none;
-    padding: 0;
-    margin: 0 0 20px 0;
-}
-
-.flash-messages li {
-    padding: 10px 15px;
-    margin-bottom: 10px;
+.flash {
+    padding: 15px;
+    margin-bottom: 20px;
     border-radius: 4px;
-    border: 1px solid transparent;
+    color: #e0e0e0;
 }
 
-.flash-error {
-    color: #721c24; /* Dark Red */
-    background-color: #f8d7da; /* Light Red */
-    border-color: #f5c6cb;
+.flash-success { background-color: #2a4d2a; border: 1px solid #3a6d3a; }
+.flash-error   { background-color: #5a2a2a; border: 1px solid #8a3a3a; }
+.flash-warning { background-color: #5a5a2a; border: 1px solid #8a8a3a; }
+.flash-info    { background-color: #2a3d4d; border: 1px solid #3a5d7a; }
+
+/* Specific Button Styles (e.g., Google) */
+.btn-google {
+    background-color: #2a2a2a;
+    border: 1px solid #555;
+    color: #e0e0e0 !important;
+}
+.btn-google:hover {
+    background-color: #3a3a3a;
+    border-color: #666;
 }
 
-.flash-warning {
-    color: #856404; /* Dark Yellow */
-    background-color: #fff3cd; /* Light Yellow */
-    border-color: #ffeeba;
+.btn-primary { /* Alias for default button */
+    /* Uses the default button styles */
 }
 
-.flash-success {
-    color: #155724; /* Dark Green */
-    background-color: #d4edda; /* Light Green */
-    border-color: #c3e6cb;
-}
-
-.flash-info {
-    color: #0c5460; /* Dark Blue */
-    background-color: #d1ecf1; /* Light Blue */
-    border-color: #bee5eb;
+.error {
+     color: #ff6b6b; /* Brighter red for errors */
+     font-size: 0.9em;
+     display: block;
+     margin-top: 5px;
 } 
