@@ -139,34 +139,120 @@ def init_db():
                 conn.rollback()
                 raise # Halt if index creation fails
 
-            # --- Chat History Table Setup (NEW) ---
-            print("Step 5: Ensuring chat_history table exists...")
+            # --- Step 5: Conversations Table (NEW) ---
+            print("Step 5: Ensuring conversations table exists...")
             try:
                 cur.execute("""
-                CREATE TABLE IF NOT EXISTS chat_history (
+                CREATE TABLE IF NOT EXISTS conversations (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER NOT NULL,
-                    role TEXT NOT NULL, -- 'user', 'assistant', 'system', 'error'
-                    content TEXT NOT NULL,
-                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    title TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
                 );
                 """)
                 conn.commit()
-                print("Step 5: chat_history table completed.")
+                 # Ensure title allows NULL (it does by default unless specified otherwise)
+                # Ensure created_at/last_updated_at have defaults (they do)
+                print("Step 5: conversations table completed.")
             except Exception as e:
-                print(f"Chat History Table Error: {e}")
+                print(f"Conversations Table Error: {e}")
                 conn.rollback()
                 raise
 
-            # Step 6: Chat History Indices (NEW)
-            print("Step 6: Ensuring chat_history indices exist...")
+            # --- Step 6: Conversations Indices (NEW) ---
+            print("Step 6: Ensuring conversations indices exist...")
             try:
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_user_id_timestamp ON chat_history (user_id, timestamp DESC);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_conversations_user_id_last_updated ON conversations (user_id, last_updated_at DESC);")
                 conn.commit()
-                print("Step 6: chat_history indices completed.")
+                print("Step 6: conversations indices completed.")
             except Exception as e:
-                print(f"Chat History Indices Error: {e}")
+                print(f"Conversations Indices Error: {e}")
+                conn.rollback()
+                raise
+
+            # --- Step 7: Chat History Table Update (Previously Step 5) ---
+            print("Step 7: Ensuring chat_history table exists and has conversation_id...")
+            try:
+                # Create table if not exists (might already exist from previous runs)
+                cur.execute("""
+                CREATE TABLE IF NOT EXISTS chat_history (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL, -- Keep user_id for potential direct queries, though convo implies user
+                    role TEXT NOT NULL, -- 'user', 'assistant', 'system', 'error'
+                    content TEXT NOT NULL,
+                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                    -- conversation_id added below if missing
+                );
+                """)
+                conn.commit()
+
+                # Add conversation_id column if it doesn't exist
+                # Use ADD COLUMN IF NOT EXISTS (PostgreSQL 9.6+)
+                if IS_POSTGRES:
+                    cur.execute("""
+                    ALTER TABLE chat_history
+                    ADD COLUMN IF NOT EXISTS conversation_id INTEGER;
+                    """)
+                    conn.commit()
+                    # Add the foreign key constraint AFTER the column exists
+                    # Use a distinct constraint name to avoid conflicts if run multiple times
+                    cur.execute("""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.table_constraints
+                            WHERE constraint_name = 'fk_chat_history_conversation_id' AND table_name = 'chat_history'
+                        ) THEN
+                            ALTER TABLE chat_history
+                            ADD CONSTRAINT fk_chat_history_conversation_id
+                            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE;
+                        END IF;
+                    END $$;
+                    """)
+                    conn.commit()
+                    # Update NULL conversation_id values to a placeholder or handle appropriately?
+                    # For now, we'll require it to be NOT NULL going forward, new records must have it.
+                    # We might need a migration step for old records if any exist.
+
+                else: # SQLite - more complex ALTER TABLE
+                    # Check if column exists
+                    cur.execute("PRAGMA table_info(chat_history);")
+                    columns = [info[1] for info in cur.fetchall()]
+                    if 'conversation_id' not in columns:
+                         print("  Adding conversation_id to chat_history (SQLite)...")
+                         # SQLite requires table recreation for adding FK constraints easily
+                         # This is complex and risky if data exists.
+                         # For simplicity here, we'll add the column without enforcing FK if SQLite.
+                         # A proper migration tool (like Alembic) would be better for production.
+                         cur.execute("ALTER TABLE chat_history ADD COLUMN conversation_id INTEGER;")
+                         conn.commit()
+                         print("  Added conversation_id column (SQLite - FK not enforced by this script).")
+
+
+                print("Step 7: chat_history table schema updated.")
+
+            except Exception as e:
+                print(f"Chat History Table Update Error: {e}")
+                conn.rollback()
+                raise
+
+            # --- Step 8: Chat History Indices Update (Previously Step 6) ---
+            print("Step 8: Ensuring updated chat_history indices exist...")
+            try:
+                # Remove old index if it exists (optional, but cleaner)
+                # cur.execute("DROP INDEX IF EXISTS idx_chat_history_user_id_timestamp;")
+                # Create new index including conversation_id
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_conversation_id_timestamp ON chat_history (conversation_id, timestamp DESC);")
+                # Optional: Index for user_id lookup if still needed
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_user_id ON chat_history (user_id);")
+
+                conn.commit()
+                print("Step 8: chat_history indices completed.")
+            except Exception as e:
+                print(f"Chat History Indices Update Error: {e}")
                 conn.rollback()
                 raise
 
@@ -360,49 +446,170 @@ def update_token_usage(user_id, tokens_increment):
     finally:
         release_db_connection(conn)
 
-# --- Chat History Functions (NEW) ---
+# --- Conversation Management Functions (NEW) ---
 
-def add_chat_message(user_id, role, content):
-    """Adds a message to the chat history."""
+def create_conversation(user_id, title=None):
+    """Creates a new conversation for a user and returns its ID."""
+    conn = get_db_connection()
+    if not conn:
+        print("ERROR: Could not get DB connection to create conversation.", file=sys.stderr)
+        return None
+    # Generate a default title if none provided (e.g., based on timestamp)
+    if not title:
+        title = f"Chat from {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+    sql = "INSERT INTO conversations (user_id, title, created_at, last_updated_at) VALUES (%s, %s, %s, %s) RETURNING id"
+    now = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (user_id, title, now, now))
+            new_conversation_id = cur.fetchone()[0]
+            conn.commit()
+            print(f"Created conversation {new_conversation_id} for user {user_id}")
+            return new_conversation_id
+    except Exception as e:
+        print(f"Error creating conversation for user {user_id}: {e}", file=sys.stderr)
+        conn.rollback()
+        return None
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+def get_conversations_for_user(user_id):
+    """Retrieves all conversations for a user, ordered by last updated."""
+    conn = get_db_connection()
+    if not conn:
+        print("ERROR: Could not get DB connection to get conversations.", file=sys.stderr)
+        return []
+    # Fetch id, title, last_updated_at
+    sql = "SELECT id, title, last_updated_at FROM conversations WHERE user_id = %s ORDER BY last_updated_at DESC"
+    conversations = []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (user_id,))
+            results = cur.fetchall()
+            # Convert to list of dicts
+            for row in results:
+                conversations.append({'id': row[0], 'title': row[1], 'last_updated_at': row[2]})
+            return conversations
+    except Exception as e:
+        print(f"Error fetching conversations for user {user_id}: {e}", file=sys.stderr)
+        return [] # Return empty list on error
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+def check_conversation_owner(conversation_id, user_id):
+    """Checks if a given user owns the specified conversation. Returns boolean."""
+    conn = get_db_connection()
+    if not conn:
+        print("ERROR: Could not get DB connection to check conversation owner.", file=sys.stderr)
+        return False
+    sql = "SELECT 1 FROM conversations WHERE id = %s AND user_id = %s"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (conversation_id, user_id))
+            result = cur.fetchone()
+            return result is not None # True if a row exists, False otherwise
+    except Exception as e:
+        print(f"Error checking conversation owner for convo {conversation_id}, user {user_id}: {e}", file=sys.stderr)
+        return False
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+def update_conversation_timestamp(conversation_id):
+     """Updates the last_updated_at timestamp for a conversation."""
+     conn = get_db_connection()
+     if not conn:
+         print("ERROR: Could not get DB connection to update conversation timestamp.", file=sys.stderr)
+         return False
+     sql = "UPDATE conversations SET last_updated_at = %s WHERE id = %s"
+     now = datetime.datetime.now(datetime.timezone.utc)
+     try:
+         with conn.cursor() as cur:
+             cur.execute(sql, (now, conversation_id))
+             conn.commit()
+             return True
+     except Exception as e:
+         print(f"Error updating timestamp for conversation {conversation_id}: {e}", file=sys.stderr)
+         conn.rollback()
+         return False
+     finally:
+         if conn:
+             release_db_connection(conn)
+
+# --- Chat History Functions (Modified) ---
+
+def add_chat_message(user_id, conversation_id, role, content):
+    """Adds a message to the chat history for a specific conversation."""
     conn = get_db_connection()
     if not conn:
         print("ERROR: Could not get DB connection to add chat message.", file=sys.stderr)
         return False
-    sql = "INSERT INTO chat_history (user_id, role, content, timestamp) VALUES (%s, %s, %s, %s)"
+
+    # Ensure conversation_id is not None before inserting
+    if conversation_id is None:
+        print(f"ERROR: Attempted to add chat message with conversation_id=None for user {user_id}", file=sys.stderr)
+        return False
+
+    # Also update the conversation's last_updated_at timestamp
+    if not update_conversation_timestamp(conversation_id):
+        print(f"Warning: Failed to update timestamp for conversation {conversation_id} when adding message.", file=sys.stderr)
+        # Continue adding the message anyway? Or return False? Let's continue for now.
+
+    # Modified SQL to include conversation_id
+    sql = "INSERT INTO chat_history (user_id, conversation_id, role, content, timestamp) VALUES (%s, %s, %s, %s, %s)"
     timestamp = datetime.datetime.now(datetime.timezone.utc)
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, (user_id, role, content, timestamp))
+            # Pass conversation_id to execute
+            cur.execute(sql, (user_id, conversation_id, role, content, timestamp))
             conn.commit()
             return True
     except Exception as e:
-        print(f"Error adding chat message for user {user_id}: {e}", file=sys.stderr)
+        print(f"Error adding chat message for user {user_id}, convo {conversation_id}: {e}", file=sys.stderr)
         conn.rollback()
         return False
     finally:
         if conn:
             release_db_connection(conn)
 
-def get_chat_history(user_id, limit=50):
-    """Retrieves the most recent chat messages for a user."""
+# Modified get_chat_history to fetch by conversation_id
+def get_chat_history(conversation_id, limit=100): # Increased limit slightly
+    """Retrieves the most recent chat messages for a specific conversation."""
     conn = get_db_connection()
     if not conn:
         print("ERROR: Could not get DB connection to get chat history.", file=sys.stderr)
         return []
-    # Fetch role, content, timestamp - adjust columns as needed
-    sql = "SELECT role, content, timestamp FROM chat_history WHERE user_id = %s ORDER BY timestamp DESC LIMIT %s"
+
+    # Ensure conversation_id is valid
+    if conversation_id is None:
+        print("ERROR: get_chat_history called with conversation_id=None.", file=sys.stderr)
+        return []
+
+    # Fetch role, content, timestamp - Filter by conversation_id
+    # Removed user_id check here - ownership should be checked before calling this
+    # NOTE: If using SQLite, placeholders might need to be '?' instead of '%s'
+    sql = "SELECT id, user_id, conversation_id, role, content, timestamp FROM chat_history WHERE conversation_id = %s ORDER BY timestamp ASC LIMIT %s"
     messages = []
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, (user_id, limit))
+            cur.execute(sql, (conversation_id, limit))
             # Fetchall returns list of tuples
             results = cur.fetchall()
-            # Convert to list of dicts for easier template use, reverse to show oldest first
-            for row in reversed(results):
-                messages.append({'role': row[0], 'content': row[1], 'timestamp': row[2]})
+            # Convert to list of dicts for easier template use
+            # Keep ascending order as set in SQL
+            for row in results:
+                # Matching the expected tuple structure for template: (id, user_id, role, content, timestamp)
+                # The template currently uses message[2] for role, message[3] for content.
+                # Let's pass the full tuple to match the template's expectation for now.
+                # A better approach would be to return dicts and update the template.
+                 messages.append(row) # Pass the raw tuple
+                # messages.append({'id': row[0], 'user_id': row[1], 'conversation_id': row[2], 'role': row[3], 'content': row[4], 'timestamp': row[5]})
             return messages
     except Exception as e:
-        print(f"Error fetching chat history for user {user_id}: {e}", file=sys.stderr)
+        print(f"Error fetching chat history for conversation {conversation_id}: {e}", file=sys.stderr)
         return [] # Return empty list on error
     finally:
         if conn:

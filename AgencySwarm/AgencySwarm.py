@@ -9,6 +9,7 @@ from datetime import timezone, timedelta # Added
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 import tiktoken
+from collections import OrderedDict # Import OrderedDict for LRU cache behaviour
 
 # Agency Swarm Imports
 from agency_swarm import Agency
@@ -19,7 +20,10 @@ from MonitorCEO.MonitorCEO import MonitorCEO
 from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 
 # Import database functions
-from Database.database_manager import get_user_token_details, update_token_usage, add_chat_message, reset_tokens
+from Database.database_manager import (
+    get_user_token_details, update_token_usage, add_chat_message, reset_tokens,
+    create_conversation, check_conversation_owner, get_chat_history # Add new imports
+)
 
 # Define the Blueprint for API routes related to the agency
 # Using url_prefix='/api' will make routes like /api/chat
@@ -28,10 +32,12 @@ from Database.database_manager import get_user_token_details, update_token_usage
 _api_bp = Blueprint('agency_api', __name__, url_prefix='/api')
 
 # --- Agency Setup ---
-# Global variable to hold the initialized agency instance
-# This avoids re-initializing agents on every request
-_agency_instance = None
-# Global variable for tokenizer encoding
+# Global cache for agency instances per conversation_id (LRU Cache)
+# Keys: conversation_id, Values: Agency instance
+_agency_cache = OrderedDict()
+MAX_CACHE_SIZE = 50 # Max number of agency instances to keep in memory per worker
+
+# Global variable for tokenizer encoding (can still be shared)
 _tokenizer_encoding = None
 
 def get_tokenizer_encoding():
@@ -46,53 +52,72 @@ def get_tokenizer_encoding():
             _tokenizer_encoding = None # Ensure it's None if failed
     return _tokenizer_encoding
 
-def create_agency():
-    """Initializes and returns the Agency Swarm Agency object."""
-    global _agency_instance
-    if _agency_instance is None:
-        print("Initializing agents...")
-        try:
-            monitor_ceo = MonitorCEO()
-            monitor_worker = WebsiteMonitor()
-            print("Agents initialized successfully.")
+# Renamed from create_agency - This now BUILDS a NEW instance every time it's called.
+def _build_new_agency(conversation_id):
+    """Builds and returns a NEW Agency Swarm Agency object for each call."""
+    print(f"Building NEW agency instance for conversation {conversation_id}...")
+    try:
+        monitor_ceo = MonitorCEO()
+        monitor_worker = WebsiteMonitor()
+        print("Agents initialized successfully.")
 
-            print("Creating agency structure...")
-            _agency_instance = Agency(
-                agency_chart=[
-                    monitor_ceo,
-                    [monitor_ceo, monitor_worker],
-                ],
-                # Check path relative to project root where app runs
-                shared_instructions='agency_manifesto.md',
-            )
-            print("Agency structure created successfully.")
+        print("Creating agency structure...")
+        # Create the new agency instance directly
+        agency = Agency(
+            agency_chart=[
+                monitor_ceo,
+                [monitor_ceo, monitor_worker],
+            ],
+            # Check path relative to project root where app runs
+            shared_instructions='agency_manifesto.md',
+        )
+        print(f"Agency structure created successfully for conversation {conversation_id}.")
+        return agency # Return the newly created instance
 
-        except FileNotFoundError:
-            print("Error: agency_manifesto.md not found. Please ensure it exists.", file=sys.stderr)
-            # Fallback or specific handling if manifesto is optional/critical
-            _agency_instance = Agency( # Initialize without manifesto if necessary
-                 agency_chart=[
-                    monitor_ceo,
-                    [monitor_ceo, monitor_worker],
-                ]
-            )
-            print("Agency structure created (without shared instructions).")
+    except FileNotFoundError:
+        print(f"Warning: agency_manifesto.md not found for conversation {conversation_id}. Creating without.", file=sys.stderr)
+        # Create without manifesto
+        agency = Agency(
+             agency_chart=[
+                monitor_ceo,
+                [monitor_ceo, monitor_worker],
+            ]
+        )
+        print(f"Agency structure created (no manifesto) for conversation {conversation_id}.")
+        return agency # Return the newly created instance
 
-        except Exception as e:
-            print(f"Fatal Error initializing agents or agency structure: {e}", file=sys.stderr)
-            traceback.print_exc()
-            # Depending on severity, you might want to exit or prevent app startup
-            # For now, we'll let it continue but _agency_instance might remain None
-            # Returning None or raising an exception might be better.
-            return None # Indicate failure
+    except Exception as e:
+        print(f"Fatal Error initializing agents or agency structure: {e}", file=sys.stderr)
+        traceback.print_exc()
+        return None # Indicate failure
 
-    return _agency_instance
+def get_or_create_agency(conversation_id):
+    """Gets an agency instance from cache or creates a new one."""
+    global _agency_cache
+    if conversation_id in _agency_cache:
+        # Move conversation to the end (most recently used)
+        _agency_cache.move_to_end(conversation_id)
+        print(f"Reusing cached agency instance for conversation {conversation_id}.")
+        return _agency_cache[conversation_id]
+    else:
+        # Check cache size before creating a new one
+        if len(_agency_cache) >= MAX_CACHE_SIZE:
+            # Remove the least recently used item (first item in OrderedDict)
+            oldest_convo_id, _ = _agency_cache.popitem(last=False)
+            print(f"Cache full. Evicted agency instance for conversation {oldest_convo_id}.")
+
+        # Build a new agency
+        new_agency = _build_new_agency(conversation_id)
+        if new_agency:
+            # Store the new instance in the cache
+            _agency_cache[conversation_id] = new_agency
+            print(f"Cached new agency instance for conversation {conversation_id}.")
+        return new_agency
 
 # --- API Endpoint(s) ---
 
-# Add an explicit, unique endpoint name
 @_api_bp.route('/chat', methods=['POST'], endpoint='agency_chat')
-@login_required # Protect the API endpoint
+@login_required
 def chat_api():
     user_id = current_user.id
     token_details = get_user_token_details(user_id)
@@ -183,28 +208,62 @@ def chat_api():
                 "next_reset_at": next_reset_timestamp_iso # Optional: send timestamp for potential frontend timer
             }), 403
 
-    # --- Proceed with Agency Interaction ---
-    agency = create_agency()
-    if not agency:
-         return jsonify({"error": "Agency failed to initialize. Check server logs."}), 500
-
+    # --- Get Request Data ---
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
 
     data = request.get_json()
     message = data.get('message')
+    conversation_id = data.get('conversation_id') # Get conversation_id from request
 
     if not message:
         return jsonify({"error": "Missing 'message' in request body"}), 400
 
-    # --- Log User Message ---
-    try:
-        add_chat_message(user_id, 'user', message)
-    except Exception as log_e: # Catch potential logging errors
-        print(f"Error logging user message: {log_e}", file=sys.stderr)
-        # Decide if this should prevent continuing? Maybe not.
+    # --- Validate or Create Conversation --- 
+    is_new_conversation = False
+    if conversation_id:
+        try:
+            conversation_id = int(conversation_id) # Ensure it's an integer
+            if not check_conversation_owner(conversation_id, user_id):
+                 print(f"Warning: User {user_id} attempted to access conversation {conversation_id} they don't own. Starting new conversation.")
+                 conversation_id = None # Treat as invalid
+            else:
+                 print(f"Continuing conversation {conversation_id} for user {user_id}")
+        except (ValueError, TypeError):
+             print(f"Warning: Invalid conversation_id format received: {conversation_id}. Starting new conversation.")
+             conversation_id = None
 
-    print(f"API received message from user {user_id}: {message}")
+    if not conversation_id:
+        print(f"No valid conversation_id provided. Creating new conversation for user {user_id}.")
+        conversation_id = create_conversation(user_id)
+        if not conversation_id:
+             print(f"ERROR: Failed to create a new conversation for user {user_id}.")
+             return jsonify({"error": "Failed to start a new chat session."}), 500
+        print(f"Started new conversation {conversation_id} for user {user_id}.")
+        is_new_conversation = True # Flag that a new convo was created
+
+    # --- Log User Message (with conversation_id) ---
+    try:
+        # Pass conversation_id to add_chat_message
+        add_chat_message(user_id, conversation_id, 'user', message)
+    except Exception as e:
+        # Log error but continue for now
+        print(f"Error saving user message for user {user_id}, convo {conversation_id}: {e}", file=sys.stderr)
+        traceback.print_exc()
+
+    # --- Proceed with Agency Interaction --- 
+    # Get agency from cache or create a new one for this conversation
+    agency = get_or_create_agency(conversation_id)
+
+    if not agency:
+         # Log error with conversation ID if available
+         print(f"ERROR: Agency failed to initialize for request (convo: {conversation_id}, user: {user_id}).")
+         return jsonify({
+             "conversation_id": conversation_id,
+             "error": "Agency failed to initialize. Check server logs."
+             }), 500
+
+    print(f"API received message for convo {conversation_id} from user {user_id}: {message}")
     response_payload = {}
     captured_steps = ""
     final_response_text = ""
@@ -212,7 +271,7 @@ def chat_api():
     error_message = ""
 
     try:
-        # --- Token Counting ---
+        # --- Token Counting (Prompt) ---
         prompt_tokens = len(encoding.encode(message))
         print(f"User {user_id} - Prompt tokens: {prompt_tokens}")
 
@@ -228,12 +287,11 @@ def chat_api():
             # print(captured_steps)
             # print("--- End Captured Steps ---")
 
-        # --- Token Counting (Completion) ---
+        # --- Token Counting (Completion) & Update Usage ---
         completion_tokens = len(encoding.encode(final_response_text))
         total_tokens = prompt_tokens + completion_tokens
         print(f"User {user_id} - Completion tokens: {completion_tokens}, Total: {total_tokens}")
 
-        # --- Update Usage ---
         # Update usage only if not subscribed
         if not token_details['is_subscribed']:
             success = update_token_usage(user_id, total_tokens)
@@ -243,33 +301,62 @@ def chat_api():
             else:
                  print(f"User {user_id} - Updated token usage by {total_tokens}")
 
+        # --- Prepare Response Payload --- 
         response_payload = {
+            "conversation_id": conversation_id, # Return the conversation ID
+            "is_new_conversation": is_new_conversation, # Indicate if a new one was made
             "response": final_response_text,
             "steps": captured_steps,
             "limit_reached": False
         }
 
-        # --- Log Agent Response ---
+        # --- Log Agent Response (with conversation_id) ---
         try:
             if captured_steps.strip(): # Log steps if captured
-                add_chat_message(user_id, 'system', f"--- Agent Steps ---\n{captured_steps}")
-            add_chat_message(user_id, 'assistant', final_response_text)
-        except Exception as log_e: 
-             print(f"Error logging agent response: {log_e}", file=sys.stderr)
+                add_chat_message(user_id, conversation_id, 'system', f"--- Agent Steps ---\n{captured_steps}")
+            add_chat_message(user_id, conversation_id, 'assistant', final_response_text)
+        except Exception as log_e:
+             print(f"Error logging agent response for convo {conversation_id}: {log_e}", file=sys.stderr)
 
     except Exception as e:
         error_occurred = True
         error_message = f"An internal error occurred: {e}"
-        print(f"Error during agency completion via API: {e}", file=sys.stderr)
+        print(f"Error during agency completion for convo {conversation_id}: {e}", file=sys.stderr)
         traceback.print_exc()
-        response_payload = {"error": error_message}
-        # --- Log Error Message ---
+        response_payload = {
+            "conversation_id": conversation_id, # Still return ID even on error
+            "error": error_message
+        }
+        # --- Log Error Message (with conversation_id) ---
         try:
-            add_chat_message(user_id, 'error', error_message)
+            add_chat_message(user_id, conversation_id, 'error', error_message)
         except Exception as log_e:
-            print(f"Error logging error message: {log_e}", file=sys.stderr)
+            print(f"Error logging error message for convo {conversation_id}: {log_e}", file=sys.stderr)
 
     # --- Return JSON Response ---
     status_code = 500 if error_occurred else 200
-    print(f"API sending response (Status: {status_code}): {response_payload.get('response', response_payload.get('error'))}")
+    print(f"API sending response for convo {conversation_id} (Status: {status_code})") # Log convo ID
     return jsonify(response_payload), status_code 
+
+# --- NEW Endpoint to get messages for a conversation ---
+@_api_bp.route('/conversations/<int:conversation_id>/messages', methods=['GET'], endpoint='get_conversation_messages')
+@login_required
+def get_messages_api(conversation_id):
+    user_id = current_user.id
+
+    # Validate ownership
+    if not check_conversation_owner(conversation_id, user_id):
+        return jsonify({"error": "Conversation not found or access denied"}), 404
+
+    try:
+        # Fetch history - get_chat_history already filters by conversation_id
+        # Note: get_chat_history currently returns tuples. Adjust if it returns dicts later.
+        messages = get_chat_history(conversation_id)
+        # The template expects tuples (id, user_id, convo_id, role, content, timestamp)
+        # Let's format them slightly for easier JS consumption (role, content)
+        formatted_messages = [{'role': msg[3], 'content': msg[4]} for msg in messages]
+        return jsonify(formatted_messages), 200
+    except Exception as e:
+        print(f"Error fetching messages for conversation {conversation_id}: {e}", file=sys.stderr)
+        traceback.print_exc()
+        return jsonify({"error": "Failed to retrieve messages"}), 500 

@@ -45,6 +45,26 @@
 
         <div id="chatbox">
             <!-- Chat messages will appear here -->
+            <!-- Load initial chat history -->
+            {% if history %}
+                {% for message in history %}
+                    {# Determine CSS class based on role #}
+                    {% set role_class = message[2] %} {# Default to the role name #}
+                    {% if message[2] == 'user' %}
+                        {% set role_class = 'user' %}
+                    {% elif message[2] == 'assistant' %}
+                        {% set role_class = 'assistant' %}
+                    {% elif message[2] == 'system' %}
+                        {% set role_class = 'system-message' %}
+                    {% elif message[2] == 'error' %}
+                        {% set role_class = 'assistant-error' %}
+                    {% endif %}
+                    <div class="message {{ role_class }}">
+                        {{ message[3] }} {# Display the content #}
+                    </div>
+                {% endfor %}
+            {% endif %}
+            <!-- New messages will be added by JavaScript below this -->
         </div>
 
         <!-- Subscription message area -->

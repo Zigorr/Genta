@@ -5,7 +5,7 @@ import atexit
 import logging
 
 from flask import Flask, render_template, request # Keep request import here
-from flask_login import LoginManager, login_required # Keep login_required for index
+from flask_login import LoginManager, login_required, current_user # Keep login_required for index, Add current_user
 from werkzeug.middleware.proxy_fix import ProxyFix
 from agency_swarm import set_openai_key
 from flask_bootstrap import Bootstrap # Import Bootstrap
@@ -19,7 +19,10 @@ from config import config # Use the dictionary defined in config.py
 # Import directly from database_manager again
 # Use correct function names for DB pool
 # Removed test_db_connection as it doesn't exist
-from Database.database_manager import init_connection_pool, close_connection_pool
+from Database.database_manager import (
+    init_connection_pool, close_connection_pool, init_db, get_chat_history,
+    get_conversations_for_user # Import get_conversations_for_user
+)
 from Auth import create_auth_blueprint
 from AgencySwarm import agency_api_bp # Import the renamed blueprint export
 from UserSettings import settings_bp # Import the new blueprint
@@ -61,6 +64,7 @@ def create_app(config_name='default'):
     # Initialize Database within app context
     with app.app_context():
         init_connection_pool() # Use correct function name
+        init_db() # Call init_db to ensure tables are created/updated
         # test_db_connection() # Removed call to non-existent function
         print("Database pool initialized.") # Simplified message
 
@@ -89,13 +93,17 @@ def create_app(config_name='default'):
     if google_bp:
         app.register_blueprint(google_bp, url_prefix="/login") # Google login starts at /login/google
 
-    # Register simple route for index page
+    # Modified index route
     @app.route('/')
     @login_required
     def index():
         try:
-            # Render the main chat interface template
-            return render_template('chat.html')
+            # Fetch the list of conversations for the sidebar
+            conversations = get_conversations_for_user(current_user.id)
+            # Initial history is empty; messages loaded via JS or specific route
+            chat_history = []
+            # Render the main chat interface template, passing conversations and empty history
+            return render_template('chat.html', conversations=conversations, history=chat_history)
         except Exception as e:
             # Explicitly log any exception occurring in this route
             app.logger.error(f"Error rendering index route: {e}", exc_info=True)
