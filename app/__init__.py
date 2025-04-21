@@ -35,8 +35,12 @@ login_manager.login_view = 'auth.login' # The endpoint name for the login route
 
 def create_app(config_name='default'):
     """Application factory function."""
-    # Explicitly set template_folder relative to the app package directory
-    app = Flask(__name__, instance_relative_config=False, template_folder='../templates')
+    # Explicitly set template_folder and static_folder relative to the app package directory
+    # Assuming 'static' and 'templates' are siblings to the 'app' directory (i.e., in the project root)
+    app = Flask(__name__,
+                instance_relative_config=False,
+                template_folder='../templates',
+                static_folder='../static')
 
     # Load configuration
     cfg = config[config_name]
@@ -121,8 +125,9 @@ def create_app(config_name='default'):
     def shutdown_session(exception=None):
         # This function is called when the app context is torn down,
         # which happens after a request or when the app shuts down.
-        # It's a good place to close the database pool.
-        close_connection_pool() # Use correct function name
+        # *** DO NOT close the pool here - it should persist for the worker life ***
+        # close_connection_pool() # REMOVED
+        pass # Can remove the function entirely if nothing else needs teardown
         # app.logger.info("Database pool closed for app context.") # Optional: Log pool closure
 
     # Error Handling

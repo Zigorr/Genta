@@ -10,6 +10,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 import tiktoken
 from collections import OrderedDict # Import OrderedDict for LRU cache behaviour
+import threading # Import threading for Lock
 
 # Agency Swarm Imports
 from agency_swarm import Agency
@@ -36,6 +37,7 @@ _api_bp = Blueprint('agency_api', __name__, url_prefix='/api')
 # Keys: conversation_id, Values: Agency instance
 _agency_cache = OrderedDict()
 MAX_CACHE_SIZE = 50 # Max number of agency instances to keep in memory per worker
+_cache_lock = threading.Lock() # Add a lock for cache access and agent usage
 
 # Global variable for tokenizer encoding (can still be shared)
 _tokenizer_encoding = None
@@ -92,27 +94,23 @@ def _build_new_agency(conversation_id):
         return None # Indicate failure
 
 def get_or_create_agency(conversation_id):
-    """Gets an agency instance from cache or creates a new one."""
+    """Gets an agency instance from cache or creates a new one (Thread-Safe)."""
     global _agency_cache
-    if conversation_id in _agency_cache:
-        # Move conversation to the end (most recently used)
-        _agency_cache.move_to_end(conversation_id)
-        print(f"Reusing cached agency instance for conversation {conversation_id}.")
-        return _agency_cache[conversation_id]
-    else:
-        # Check cache size before creating a new one
-        if len(_agency_cache) >= MAX_CACHE_SIZE:
-            # Remove the least recently used item (first item in OrderedDict)
-            oldest_convo_id, _ = _agency_cache.popitem(last=False)
-            print(f"Cache full. Evicted agency instance for conversation {oldest_convo_id}.")
-
-        # Build a new agency
-        new_agency = _build_new_agency(conversation_id)
-        if new_agency:
-            # Store the new instance in the cache
-            _agency_cache[conversation_id] = new_agency
-            print(f"Cached new agency instance for conversation {conversation_id}.")
-        return new_agency
+    with _cache_lock: # Acquire lock for reading/writing cache
+        if conversation_id in _agency_cache:
+            _agency_cache.move_to_end(conversation_id)
+            print(f"Reusing cached agency instance for conversation {conversation_id}.")
+            return _agency_cache[conversation_id]
+        else:
+            if len(_agency_cache) >= MAX_CACHE_SIZE:
+                oldest_convo_id, _ = _agency_cache.popitem(last=False)
+                print(f"Cache full. Evicted agency instance for conversation {oldest_convo_id}.")
+            # Build happens inside the lock to prevent multiple builds for the same new ID
+            new_agency = _build_new_agency(conversation_id)
+            if new_agency:
+                _agency_cache[conversation_id] = new_agency
+                print(f"Cached new agency instance for conversation {conversation_id}.")
+            return new_agency
 
 # --- API Endpoint(s) ---
 
@@ -260,10 +258,10 @@ def chat_api():
          print(f"ERROR: Agency failed to initialize for request (convo: {conversation_id}, user: {user_id}).")
          return jsonify({
              "conversation_id": conversation_id,
-             "error": "Agency failed to initialize. Check server logs."
+             "error": "Agency failed to initialize or retrieve. Check server logs."
              }), 500
 
-    print(f"API received message for convo {conversation_id} from user {user_id}: {message}")
+    print(f"Using agency for convo {conversation_id}. Processing message from user {user_id}.")
     response_payload = {}
     captured_steps = ""
     final_response_text = ""
@@ -278,8 +276,13 @@ def chat_api():
         # --- Capture stdout during agency completion ---
         stdout_capture = io.StringIO()
         try:
-            with contextlib.redirect_stdout(stdout_capture):
-                final_response_text = agency.get_completion(message)
+            # Acquire lock specifically around using the potentially shared agency instance
+            with _cache_lock:
+                print(f"Lock acquired for agency completion (convo: {conversation_id})")
+                with contextlib.redirect_stdout(stdout_capture):
+                    # *** CRITICAL: Pass the message to the cached/retrieved agency instance ***
+                    final_response_text = agency.get_completion(message)
+            print(f"Lock released after agency completion (convo: {conversation_id})")
         finally:
             captured_steps = stdout_capture.getvalue()
             # Optional: Print captured steps to actual console for debugging if needed
@@ -312,49 +315,44 @@ def chat_api():
 
         # --- Log Agent Response (with conversation_id) ---
         try:
-            if captured_steps.strip(): # Log steps if captured
-                add_chat_message(user_id, conversation_id, 'system', f"--- Agent Steps ---\n{captured_steps}")
+            # COMMENTED OUT: Don't save system messages (agent steps)
+            # if captured_steps.strip(): add_chat_message(user_id, conversation_id, 'system', f"--- Agent Steps ---\n{captured_steps}")
+            
+            # Save assistant response
             add_chat_message(user_id, conversation_id, 'assistant', final_response_text)
-        except Exception as log_e:
-             print(f"Error logging agent response for convo {conversation_id}: {log_e}", file=sys.stderr)
+        except Exception as log_e: print(f"Error logging agent response for convo {conversation_id}: {log_e}", file=sys.stderr)
 
     except Exception as e:
         error_occurred = True
-        error_message = f"An internal error occurred: {e}"
+        error_message = f"An internal error occurred processing your request."
         print(f"Error during agency completion for convo {conversation_id}: {e}", file=sys.stderr)
         traceback.print_exc()
-        response_payload = {
-            "conversation_id": conversation_id, # Still return ID even on error
-            "error": error_message
-        }
+        response_payload = {"conversation_id": conversation_id, "error": error_message}
         # --- Log Error Message (with conversation_id) ---
         try:
-            add_chat_message(user_id, conversation_id, 'error', error_message)
-        except Exception as log_e:
-            print(f"Error logging error message for convo {conversation_id}: {log_e}", file=sys.stderr)
+            # COMMENTED OUT: Don't save error messages to chat history
+            # add_chat_message(user_id, conversation_id, 'error', f"Internal Error: {e}")
+            pass # No action needed here now
+        except Exception as log_e: print(f"Error logging error message for convo {conversation_id}: {log_e}", file=sys.stderr)
 
     # --- Return JSON Response ---
     status_code = 500 if error_occurred else 200
     print(f"API sending response for convo {conversation_id} (Status: {status_code})") # Log convo ID
     return jsonify(response_payload), status_code 
 
-# --- NEW Endpoint to get messages for a conversation ---
+# --- Endpoint to get messages for a conversation --- 
 @_api_bp.route('/conversations/<int:conversation_id>/messages', methods=['GET'], endpoint='get_conversation_messages')
 @login_required
 def get_messages_api(conversation_id):
     user_id = current_user.id
-
-    # Validate ownership
     if not check_conversation_owner(conversation_id, user_id):
         return jsonify({"error": "Conversation not found or access denied"}), 404
-
     try:
-        # Fetch history - get_chat_history already filters by conversation_id
-        # Note: get_chat_history currently returns tuples. Adjust if it returns dicts later.
         messages = get_chat_history(conversation_id)
-        # The template expects tuples (id, user_id, convo_id, role, content, timestamp)
-        # Let's format them slightly for easier JS consumption (role, content)
-        formatted_messages = [{'role': msg[3], 'content': msg[4]} for msg in messages]
+        # Filter messages to include only 'user' and 'assistant' roles
+        filtered_messages = [msg for msg in messages if msg[3] in ('user', 'assistant')]
+        # Format the filtered messages for easier JS consumption
+        formatted_messages = [{'role': msg[3], 'content': msg[4]} for msg in filtered_messages]
         return jsonify(formatted_messages), 200
     except Exception as e:
         print(f"Error fetching messages for conversation {conversation_id}: {e}", file=sys.stderr)

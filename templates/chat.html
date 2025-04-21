@@ -48,20 +48,14 @@
             <!-- Load initial chat history -->
             {% if history %}
                 {% for message in history %}
-                    {# Determine CSS class based on role #}
-                    {% set role_class = message[2] %} {# Default to the role name #}
-                    {% if message[2] == 'user' %}
-                        {% set role_class = 'user' %}
-                    {% elif message[2] == 'assistant' %}
-                        {% set role_class = 'assistant' %}
-                    {% elif message[2] == 'system' %}
-                        {% set role_class = 'system-message' %}
-                    {% elif message[2] == 'error' %}
-                        {% set role_class = 'assistant-error' %}
+                    {# Only display user and assistant messages #}
+                    {% if message[3] == 'user' or message[3] == 'assistant' %}
+                        {# Determine CSS class based on role #}
+                        {% set role_class = message[3] %} {# Use role directly #}
+                        <div class="message {{ role_class }}">
+                            {{ message[4] }} {# Display the content #}
+                        </div>
                     {% endif %}
-                    <div class="message {{ role_class }}">
-                        {{ message[3] }} {# Display the content #}
-                    </div>
                 {% endfor %}
             {% endif %}
             <!-- New messages will be added by JavaScript below this -->
@@ -84,18 +78,23 @@
         const inputForm = document.getElementById('input-area');
         const sendButton = document.getElementById('send-button');
         const subscribeSection = document.getElementById('subscribe-section');
+        let currentConversationId = null; // Add state for current conversation
 
         function addMessage(role, text) {
-            const messageDiv = document.createElement('div');
-            // Use hyphenated class name for errors
-            const messageRoleClass = role.includes('error') ? 'assistant-error' : role;
-            messageDiv.classList.add('message', messageRoleClass);
+            // Only add user or assistant messages to the display
+            if (role === 'user' || role === 'assistant') {
+                const messageDiv = document.createElement('div');
+                // Original logic for setting class:
+                // const messageRoleClass = role.includes('error') ? 'assistant-error' : role;
+                // Simplified class setting since we only have user/assistant now:
+                 const messageRoleClass = role;
+                messageDiv.classList.add('message', messageRoleClass);
 
-            // Basic sanitization
-            const textNode = document.createTextNode(text);
-            messageDiv.appendChild(textNode);
-            chatbox.appendChild(messageDiv);
-            chatbox.scrollTop = chatbox.scrollHeight;
+                const textNode = document.createTextNode(text);
+                messageDiv.appendChild(textNode);
+                chatbox.appendChild(messageDiv);
+                chatbox.scrollTop = chatbox.scrollHeight;
+            }
         }
 
         function handleSubscribeClick() {
@@ -109,64 +108,106 @@
             const message = messageInput.value.trim();
             if (!message) return;
 
-            addMessage('user', message);
+            addMessage('user', message); // Add user message to UI
             messageInput.value = '';
             messageInput.disabled = true;
             sendButton.disabled = true;
             subscribeSection.style.display = 'none';
 
             try {
+                // Send currentConversationId to the backend
+                const payload = { message: message };
+                if (currentConversationId) {
+                    payload.conversation_id = currentConversationId;
+                }
+
                 const response = await fetch("{{ url_for('agency_api.agency_chat') }}", {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ message: message })
+                    body: JSON.stringify(payload) // Send payload with convo ID
                 });
 
                 let data = {};
-                try {
-                    data = await response.json();
-                } catch (jsonError) {
-                    console.error("Failed to parse JSON response:", jsonError);
-                    throw new Error(`HTTP error! Status: ${response.status} ${response.statusText || '(No status text)'}`);
+                try { data = await response.json(); } catch (jsonError) { /* ... */ throw new Error(`HTTP error! ...`); }
+
+                // Update currentConversationId if it was a new conversation
+                if (data.conversation_id && data.is_new_conversation) {
+                    currentConversationId = data.conversation_id;
+                    // TODO: Add the new conversation to the sidebar list dynamically
+                    console.log("New conversation created with ID:", currentConversationId);
+                    // Optionally update URL: history.pushState({}, '', '/chat/' + currentConversationId);
+                } else if (data.conversation_id) {
+                     currentConversationId = data.conversation_id; // Ensure it's set even for existing convos
                 }
 
                 if (response.status === 403 && data.limit_reached === true) {
-                    // --- Handle Token Limit --- 
-                    addMessage('system-message error', data.message);
-                    // Show the subscribe section with a LINK styled as a button
-                    // Construct the URL manually as url_for isn't available directly here
-                    const subscribeUrl = '/settings/subscribe'; // Assumes settings_bp url_prefix is '/settings'
-                    subscribeSection.innerHTML = `
-                        <p>If you enjoyed the service you can subscribe to our service</p>
-                        <a href="${subscribeUrl}" class="button button-subscribe">Subscribe</a>
-                    `;
+                    // Add message (won't display if addMessage is filtered, use console or dedicated element)
+                     console.warn("Token Limit Message:", data.message);
+                    // subscribeSection handling...
+                    const subscribeUrl = '/settings/subscribe';
+                    subscribeSection.innerHTML = `<p>${data.message}</p><p>You can subscribe to our service</p><a href="${subscribeUrl}" class="button button-subscribe">Subscribe</a>`;
                     subscribeSection.style.display = 'block';
                 } else if (!response.ok) {
-                    // --- Handle Other Errors --- 
                     const errorText = data.error || `API Error: ${response.status} ${response.statusText}`;
-                    throw new Error(errorText);
+                    // Log error, maybe show a generic message via a different mechanism
+                    console.error("API Error:", errorText);
+                    // addMessage('error', `Sorry, an error occurred: ${errorText}`); // This won't display
+                    alert(`Sorry, an error occurred: ${errorText}`); // Simple alert for now
+                    throw new Error(errorText); // Re-throw to be caught by outer catch
                 } else {
-                    // --- Handle Successful Response --- 
-                    // 1. Display captured steps if they exist
-                    if (data.steps && data.steps.trim() !== '') {
-                        // Use a system-message style for the steps
-                        addMessage('system-message', `--- Agent Steps ---\n${data.steps}`);
-                    }
-                    // 2. Display the final assistant response
+                    // Display assistant response (addMessage will filter roles)
+                    // Steps are no longer sent/logged, so no need to display them
+                    // if (data.steps && data.steps.trim() !== '') {
+                    //    addMessage('system-message', `--- Agent Steps ---\n${data.steps}`);
+                    // }
                     addMessage('assistant', data.response);
                 }
-
             } catch (error) {
+                // Log error and potentially show user
                 console.error('Error fetching/processing chat response:', error);
-                addMessage('assistant-error', `Sorry, an error occurred: ${error.message}.`);
+                // addMessage('assistant-error', `Sorry, an error occurred: ${error.message}.`); // This won't display
+                // Use alert or a dedicated error display area
+                alert(`An error occurred while sending your message.`);
             } finally {
-                 messageInput.disabled = false;
-                 sendButton.disabled = false;
-                 messageInput.focus();
+                messageInput.disabled = false;
+                sendButton.disabled = false;
+                messageInput.focus();
             }
         });
+
+        // --- TODO: Add JS for Sidebar, New Chat Button, Loading Messages --- 
+        // Example placeholder for loading messages when a conversation is clicked
+        async function loadConversation(conversationId) {
+             if (!conversationId) return;
+             console.log("Loading conversation:", conversationId);
+             chatbox.innerHTML = ''; // Clear existing messages
+             currentConversationId = conversationId;
+             messageInput.disabled = true;
+             sendButton.disabled = true;
+
+             // TODO: Add visual selection indication to sidebar item
+
+             try {
+                const response = await fetch(`/api/conversations/${conversationId}/messages`);
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Failed to load messages: ${response.status}`);
+                }
+                const messages = await response.json();
+                messages.forEach(msg => addMessage(msg.role, msg.content));
+             } catch (error) {
+                 console.error("Error loading conversation history:", error);
+                 addMessage('error', `Failed to load chat history: ${error.message}`); // This won't display
+                 alert(`Failed to load chat history: ${error.message}`);
+             } finally {
+                  messageInput.disabled = false;
+                  sendButton.disabled = false;
+                  messageInput.focus();
+                  chatbox.scrollTop = chatbox.scrollHeight; // Scroll to bottom after loading
+             }
+        }
 
         messageInput.focus();
     </script>
