@@ -23,10 +23,15 @@ pool = None
 def init_connection_pool():
     global pool
     if IS_POSTGRES and not pool:
+        # --- DEBUGGING ---
+        db_url_in_pool_init = os.getenv('DATABASE_URL') # Read it again just in case
+        print(f"DEBUG: DATABASE_URL in init_connection_pool: {db_url_in_pool_init}", flush=True)
+        # --- END DEBUGGING ---
         try:
             print("Initializing database connection pool...")
             # Ensure max_connections is reasonable, e.g., 5-10 for most apps
-            pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
+            # Use the locally read variable just for certainty in debugging
+            pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=db_url_in_pool_init)
             print("Database connection pool initialized.")
         except psycopg2.OperationalError as e:
             print(f"ERROR: Could not connect to PostgreSQL database: {e}", file=sys.stderr)
