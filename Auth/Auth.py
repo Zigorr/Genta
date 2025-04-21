@@ -446,4 +446,43 @@ def verify_email():
     # GET request or failed POST validation
     return render_template('verify.html', form=form, email=email)
 
+# --- NEW Resend Verification Route ---
+@_auth_bp.route('/resend-verification', methods=['POST'])
+def resend_verification():
+    email = request.form.get('email')
+    if not email:
+        flash('Email address missing.', 'error')
+        return redirect(url_for('auth.login')) # Or maybe to register?
+
+    user_details = get_verification_details(email)
+    if not user_details:
+        flash(f'No account found for {email}.', 'warning')
+        return redirect(url_for('auth.register'))
+    
+    user_id, is_verified, _, _ = user_details # Unpack needed parts
+
+    if is_verified:
+        flash('Account is already verified.', 'info')
+        # Log them in if not already? For now, just redirect.
+        return redirect(url_for('auth.login'))
+    
+    # Proceed with resending
+    try:
+        verification_code = "".join(random.choices(string.digits, k=4))
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+        set_code_success = set_verification_code(user_id, verification_code, expires_at)
+
+        if set_code_success:
+            send_verification_email(email, verification_code)
+            flash(f'A new verification code has been sent to {email}.', 'info')
+        else:
+            flash('Failed to update verification code. Please try again later.', 'error')
+    except Exception as e:
+        print(f"Error during resend verification for {email}: {e}", file=sys.stderr)
+        traceback.print_exc()
+        flash('An error occurred while trying to resend the verification code.', 'error')
+    
+    # Redirect back to the verification page regardless of success/failure
+    return redirect(url_for('auth.verify_email', email=email))
+
 # --- TODO: Add Verification Route --- 

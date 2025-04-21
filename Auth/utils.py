@@ -5,12 +5,19 @@ import threading
 
 def send_async_email(app, msg):
     with app.app_context():
+        recipient = msg.recipients[0] if msg.recipients else 'UNKNOWN'
+        print(f"--- Attempting to send email to {recipient}... ---", flush=True)
         try:
+            # Explicitly connect and disconnect if default send fails silently?
+            # For now, just try sending directly.
             mail.send(msg)
-            print(f"Verification email sent to {msg.recipients}")
+            print(f"--- Successfully sent email to {recipient} (according to Flask-Mail) ---", flush=True)
         except Exception as e:
-            print(f"Error sending email to {msg.recipients}: {e}")
-            # Optionally log to a file or more robust error tracking
+            print(f"--- ERROR sending email to {recipient}: {e} ---", flush=True)
+            import traceback
+            traceback.print_exc() # Print full traceback
+        finally:
+             print(f"--- Finished email sending attempt for {recipient} ---", flush=True)
 
 def send_verification_email(user_email, verification_code):
     app = current_app._get_current_object() # Get the real app instance

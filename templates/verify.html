@@ -30,8 +30,11 @@
         {{ form.submit(class="btn btn-primary") }}
     </form>
 
-    {# Optional: Add a link/button to resend the code #}
-    {# <p style="margin-top: 1em;"><a href="{{ url_for('auth.resend_verification', email=email) }}">Resend Code</a></p> #}
+    {# Add a form to resend the code #}
+    <form method="POST" action="{{ url_for('auth.resend_verification') }}" style="margin-top: 1em;">
+        <input type="hidden" name="email" value="{{ email }}">
+        <button type="submit" class="btn btn-link p-0">Didn't receive the code? Resend</button>
+    </form>
     
     <p style="margin-top: 1em;">Changed your mind? <a href="{{ url_for('auth.logout') }}">Logout</a></p>
 </div>
