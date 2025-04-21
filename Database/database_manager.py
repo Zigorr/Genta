@@ -2,7 +2,7 @@
 import os
 import sys
 import psycopg2
-from psycopg2 import pool
+from psycopg2 import pool, errors
 from flask import current_app # Import current_app
 from flask_login import UserMixin # Needed for the User class
 # Removed load_dotenv, config loaded by app factory
@@ -291,19 +291,37 @@ def _ensure_column_exists_sqlite_safe(conn, cursor, table, column, col_type):
         # Check if column exists
         cursor.execute(f"SELECT {column} FROM {table} LIMIT 1;")
         print(f"Column {column} exists.")
-    except (psycopg2.UndefinedColumn, sqlite3.OperationalError):
-        # Column doesn't exist, add it
-        try:
-            print(f"Adding column {column} (SQLite/fallback method)...")
-            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type};")
-            conn.commit() # Commit this specific change
-            print(f"Added column {column}.")
-        except Exception as e:
-            print(f"Failed to add column {column}: {e}")
-            conn.rollback() # Rollback failed add
-            raise # Propagate error
+    except (psycopg2.DatabaseError, sqlite3.OperationalError) as e:
+        # Check if it's an "undefined column" error (PostgreSQL code 42703)
+        if IS_POSTGRES and hasattr(e, 'pgcode') and e.pgcode == '42703':
+            # Column doesn't exist, add it
+            try:
+                print(f"Adding column {column} (PostgreSQL - UndefinedColumn detected)...")
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type};")
+                conn.commit()
+                print(f"Added column {column}.")
+            except Exception as add_e:
+                print(f"Failed to add column {column}: {add_e}")
+                conn.rollback()
+                raise
+        elif not IS_POSTGRES and isinstance(e, sqlite3.OperationalError) and "no such column" in str(e).lower():
+             # Column doesn't exist in SQLite, add it
+             try:
+                print(f"Adding column {column} (SQLite - 'no such column' detected)...")
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type};")
+                conn.commit()
+                print(f"Added column {column}.")
+             except Exception as add_e:
+                print(f"Failed to add column {column}: {add_e}")
+                conn.rollback()
+                raise
+        else:
+            # Different DB error, re-raise
+            print(f"Unexpected database error checking column {column}: {e}")
+            conn.rollback()
+            raise
     except Exception as e:
-         # Handle unexpected errors during the initial SELECT check
+         # Handle unexpected non-DB errors during the initial SELECT check
          print(f"Unexpected error checking column {column}: {e}")
          conn.rollback()
          raise
@@ -398,11 +416,18 @@ def add_user(username, password_hash=None, google_id=None):
             new_user_id = cur.fetchone()[0]
             conn.commit()
             return True, new_user_id # Return success and new ID
-    except (psycopg2.UniqueViolation, sqlite3.IntegrityError) as e:
-        # Handle cases where username or google_id might already exist
-        conn.rollback()
-        print(f"Database integrity error adding user '{username}': {e}")
-        return False, None # Indicate failure
+    except (psycopg2.IntegrityError, sqlite3.IntegrityError) as e:
+        # Check if it's a unique violation (PostgreSQL code 23505)
+        if (IS_POSTGRES and hasattr(e, 'pgcode') and e.pgcode == '23505') or \
+           (not IS_POSTGRES and "unique constraint failed" in str(e).lower()):
+            conn.rollback()
+            print(f"Database integrity error adding user '{username}' (Unique Violation): {e}")
+            return False, None
+        else:
+            # Different integrity error, handle or re-raise
+            conn.rollback()
+            print(f"Database integrity error adding user '{username}': {e}")
+            return False, None
     except Exception as e:
         conn.rollback()
         print(f"Unexpected error adding user '{username}': {e}")
@@ -539,6 +564,35 @@ def update_conversation_timestamp(conversation_id):
          if conn:
              release_db_connection(conn)
 
+def delete_conversation(conversation_id, user_id):
+    """Deletes a conversation and its associated messages if the user owns it."""
+    conn = get_db_connection()
+    if not conn:
+        print(f"ERROR: Could not get DB connection to delete conversation {conversation_id}.", file=sys.stderr)
+        return False
+    try:
+        with conn.cursor() as cur:
+            # Verify ownership before deleting
+            cur.execute("SELECT 1 FROM conversations WHERE id = %s AND user_id = %s", (conversation_id, user_id))
+            if cur.fetchone() is None:
+                print(f"Attempt to delete conversation {conversation_id} failed: Not owned by user {user_id} or does not exist.")
+                return False # Or raise an exception for permission denied?
+
+            # Delete the conversation (CASCADE should handle chat_history rows)
+            cur.execute("DELETE FROM conversations WHERE id = %s", (conversation_id,))
+            conn.commit()
+            # Check if deletion happened (optional)
+            rowcount = cur.rowcount
+            print(f"Deleted conversation {conversation_id} owned by user {user_id}. Rows affected: {rowcount}")
+            return rowcount > 0
+    except Exception as e:
+        print(f"Error deleting conversation {conversation_id} for user {user_id}: {e}", file=sys.stderr)
+        conn.rollback()
+        return False
+    finally:
+        if conn:
+            release_db_connection(conn)
+
 # --- Chat History Functions (Modified) ---
 
 def add_chat_message(user_id, conversation_id, role, content):
@@ -668,10 +722,18 @@ def update_username(user_id, new_username):
             conn.commit()
             print(f"Username updated for user {user_id}.")
             return True
-    except (psycopg2.UniqueViolation, sqlite3.IntegrityError) as e: # Catch unique constraint violation
-        print(f"Error updating username for user {user_id}: Username '{new_username}' likely already exists. {e}")
-        conn.rollback()
-        return False # Indicate failure specifically due to uniqueness
+    except (psycopg2.IntegrityError, sqlite3.IntegrityError) as e: # Catch unique constraint violation
+        # Check if it's a unique violation (PostgreSQL code 23505)
+        if (IS_POSTGRES and hasattr(e, 'pgcode') and e.pgcode == '23505') or \
+           (not IS_POSTGRES and "unique constraint failed" in str(e).lower()):
+            print(f"Error updating username for user {user_id}: Username '{new_username}' likely already exists (Unique Violation). {e}")
+            conn.rollback()
+            return False
+        else:
+            # Different integrity error
+            print(f"Error updating username for user {user_id}: {e}", file=sys.stderr)
+            conn.rollback()
+            return False
     except Exception as e:
         print(f"Error updating username for user {user_id}: {e}", file=sys.stderr)
         conn.rollback()

@@ -8,8 +8,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from . import settings_bp
 from Database.database_manager import (
-    get_chat_history, get_user_token_details, set_user_subscription, 
-    update_username, update_password_hash, get_password_hash, # Added new DB functions
+    get_user_token_details, set_user_subscription, 
+    update_username, update_password_hash, get_password_hash,
     get_user_by_username # Needed for username check
 )
 # Import the new forms
@@ -21,7 +21,7 @@ stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 @settings_bp.route('/', methods=['GET']) # Explicitly GET
 @login_required
 def view_settings():
-    """Displays the user settings page with forms, account info, and chat history."""
+    """Displays the user settings page with forms and account info."""
     user_id = current_user.id
     
     # Fetch user details (token usage, subscription status)
@@ -31,9 +31,6 @@ def view_settings():
         user_details = {'tokens_used': 'N/A', 'is_subscribed': False} # Provide defaults
         # Optionally flash a message
 
-    # Fetch chat history
-    chat_history = get_chat_history(user_id, limit=100) # Get last 100 messages
-    
     # Get token limit from config
     token_limit = current_app.config.get('FREE_TIER_TOKEN_LIMIT', 200)
 
@@ -46,7 +43,6 @@ def view_settings():
                            user=current_user, 
                            user_details=user_details,
                            token_limit=token_limit,
-                           history=chat_history,
                            change_username_form=change_username_form,
                            change_password_form=change_password_form)
 

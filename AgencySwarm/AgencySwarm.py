@@ -23,7 +23,7 @@ from WebsiteMonitor.WebsiteMonitor import WebsiteMonitor
 # Import database functions
 from Database.database_manager import (
     get_user_token_details, update_token_usage, add_chat_message, reset_tokens,
-    create_conversation, check_conversation_owner, get_chat_history # Add new imports
+    create_conversation, check_conversation_owner, get_chat_history, delete_conversation # Add new imports
 )
 
 # Define the Blueprint for API routes related to the agency
@@ -358,3 +358,31 @@ def get_messages_api(conversation_id):
         print(f"Error fetching messages for conversation {conversation_id}: {e}", file=sys.stderr)
         traceback.print_exc()
         return jsonify({"error": "Failed to retrieve messages"}), 500 
+
+# --- NEW Endpoint to delete a conversation ---
+@_api_bp.route('/conversations/<int:conversation_id>', methods=['DELETE'], endpoint='delete_conversation_api')
+@login_required
+def delete_conversation_api(conversation_id):
+    user_id = current_user.id
+    
+    # Attempt to delete (includes ownership check)
+    success = delete_conversation(conversation_id, user_id)
+    
+    if success:
+        # Also remove from cache if it exists (though it might be evicted already)
+        with _cache_lock:
+            if conversation_id in _agency_cache:
+                del _agency_cache[conversation_id]
+                print(f"Removed deleted conversation {conversation_id} from agency cache.")
+        return jsonify({"success": True, "message": "Conversation deleted successfully"}), 200
+    else:
+        # delete_conversation handles logging the reason (not found, owner mismatch, db error)
+        # We might not know the exact reason here, so return a generic failure
+        # Check ownership again to provide a better error? Or rely on DB function logging?
+        # Let's return 404 if owner check fails, 500 otherwise.
+        if not check_conversation_owner(conversation_id, user_id):
+             # Check if it exists at all to differentiate 404 vs 403 (optional)
+             return jsonify({"success": False, "error": "Conversation not found or access denied"}), 404
+        else:
+             # If owner check passes but delete failed, it must be a DB error
+            return jsonify({"success": False, "error": "Failed to delete conversation due to a server error"}), 500 
