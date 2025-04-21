@@ -28,19 +28,9 @@ from Database.database_manager import (
 from .utils import send_verification_email # Import the email sending function
 
 # Import Forms - Assuming they are in Auth/forms.py
-try:
-    from .forms import LoginForm, RegistrationForm, SetUsernameForm, VerificationForm
-except ImportError:
-    # Handle case where forms.py might not exist or has different naming
-    # Provide default empty forms to prevent crashes, but log a warning.
-    # Ideally, create forms.py if it's missing.
-    print("WARNING: Could not import LoginForm, RegistrationForm, or SetUsernameForm from Auth.forms. Check if forms.py exists and defines these classes.", file=sys.stderr)
-    from wtforms import Form
-    class LoginForm(Form): pass
-    class RegistrationForm(Form): pass
-    class SetUsernameForm(Form): pass
-    class VerificationForm(Form): pass
-
+# The try/except is removed as Auth/__init__.py should fix the import path
+from .forms import LoginForm, RegistrationForm, VerificationForm # Removed SetUsernameForm if not used
+# If SetUsernameForm is still needed, add it back here.
 
 # Define the Blueprint for authentication routes
 # Renamed to _auth_bp internally, expose via factory
