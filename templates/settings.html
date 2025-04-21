@@ -21,7 +21,9 @@
     {# Account Information Section #}
     <div class="settings-section">
         <h3>Account Information</h3>
-        <p><strong>Current Username:</strong> {{ user.username }}</p>
+        <p><strong>First Name:</strong> {{ user.first_name or 'Not Set' }}</p>
+        <p><strong>Last Name:</strong> {{ user.last_name or 'Not Set' }}</p>
+        <p><strong>Email:</strong> {{ user.email }}</p>
         <p>
             <strong>Subscription Status:</strong> 
             {% if user_details.is_subscribed %}
@@ -50,23 +52,6 @@
                  <button type="submit" class="button button-danger">Cancel Subscription</button>
              </form>
         {% endif %}
-    </div>
-
-    {# Change Username Section #}
-    <div class="settings-section">
-        <h3>Change Username</h3>
-        {# Pass the form object from the route context #}
-        <form method="POST" action="{{ url_for('settings.change_username') }}" novalidate>
-             {{ change_username_form.hidden_tag() }} {# Includes CSRF token #}
-             <div class="form-group">
-                {{ change_username_form.username.label }} 
-                {{ change_username_form.username(class="form-control") }}
-                {% if change_username_form.username.errors %}
-                    {% for error in change_username_form.username.errors %}<span class="error">{{ error }}</span>{% endfor %}
-                {% endif %}
-             </div>
-             {{ change_username_form.submit(class="button button-primary") }}
-        </form>
     </div>
 
     {# Change Password Section (Only show if user has a password) #}

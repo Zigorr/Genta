@@ -16,34 +16,48 @@
 
     <form method="POST" action="{{ url_for('auth.register') }}">
         {{ form.hidden_tag() }}
+        
         <div class="form-group">
-            {{ form.username.label }}
-            {{ form.username(class="form-control") }}
-            {% if form.username.errors %}
-                {% for error in form.username.errors %}
-                    <span class="error">{{ error }}</span>
-                {% endfor %}
+            {{ form.first_name.label }}
+            {{ form.first_name(class="form-control", placeholder="Enter your first name") }}
+            {% if form.first_name.errors %}
+                {% for error in form.first_name.errors %}<span class="error">{{ error }}</span>{% endfor %}
             {% endif %}
         </div>
+
+        <div class="form-group">
+            {{ form.last_name.label }}
+            {{ form.last_name(class="form-control", placeholder="Enter your last name") }}
+            {% if form.last_name.errors %}
+                {% for error in form.last_name.errors %}<span class="error">{{ error }}</span>{% endfor %}
+            {% endif %}
+        </div>
+
+        <div class="form-group">
+            {{ form.email.label }}
+            {{ form.email(class="form-control", placeholder="Enter your email address") }}
+            {% if form.email.errors %}
+                {% for error in form.email.errors %}<span class="error">{{ error }}</span>{% endfor %}
+            {% endif %}
+        </div>
+
         <div class="form-group">
             {{ form.password.label }}
-            {{ form.password(class="form-control") }}
+            {{ form.password(class="form-control", placeholder="Create a password") }}
             {% if form.password.errors %}
-                {% for error in form.password.errors %}
-                    <span class="error">{{ error }}</span>
-                {% endfor %}
+                {% for error in form.password.errors %}<span class="error">{{ error }}</span>{% endfor %}
             {% endif %}
         </div>
+
         <div class="form-group">
             {{ form.confirm_password.label }}
-            {{ form.confirm_password(class="form-control") }}
+            {{ form.confirm_password(class="form-control", placeholder="Confirm your password") }}
              {% if form.confirm_password.errors %}
-                {% for error in form.confirm_password.errors %}
-                    <span class="error">{{ error }}</span>
-                {% endfor %}
+                {% for error in form.confirm_password.errors %}<span class="error">{{ error }}</span>{% endfor %}
             {% endif %}
         </div>
-        <button type="submit" class="btn btn-primary">Register</button>
+        
+        {{ form.submit(class="btn btn-primary") }}
     </form>
 
     <hr> {# Optional separator #}

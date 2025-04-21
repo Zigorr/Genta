@@ -9,6 +9,7 @@ from flask_login import LoginManager, login_required, current_user # Keep login_
 from werkzeug.middleware.proxy_fix import ProxyFix
 from agency_swarm import set_openai_key
 from flask_bootstrap import Bootstrap # Import Bootstrap
+from flask_mail import Mail # Import Mail
 
 # Import config
 from config import config # Use the dictionary defined in config.py
@@ -31,6 +32,7 @@ from flask_dance.contrib.google import make_google_blueprint
 # Initialize extensions (outside factory to make them accessible)
 login_manager = LoginManager()
 login_manager.login_view = 'auth.login' # The endpoint name for the login route
+mail = Mail() # Initialize Mail object
 
 
 def create_app(config_name='default'):
@@ -53,6 +55,7 @@ def create_app(config_name='default'):
     # Initialize extensions with the app
     login_manager.init_app(app)
     Bootstrap(app) # Initialize Bootstrap here
+    mail.init_app(app) # Initialize Mail with the app
 
     # Set OpenAI API Key (check moved to config.init_app)
     if app.config.get('OPENAI_API_KEY'):

@@ -17,27 +17,28 @@
     <form method="POST" action="{{ url_for('auth.login') }}">
         {{ form.hidden_tag() }}
         <div class="form-group">
-            {{ form.username.label }}
-            {{ form.username(class="form-control") }}
-            {% if form.username.errors %}
-                {% for error in form.username.errors %}
+            {{ form.email.label }}
+            {{ form.email(class="form-control", placeholder="Enter your email") }}
+            {% if form.email.errors %}
+                {% for error in form.email.errors %}
                     <span class="error">{{ error }}</span>
                 {% endfor %}
             {% endif %}
         </div>
         <div class="form-group">
             {{ form.password.label }}
-            {{ form.password(class="form-control") }}
+            {{ form.password(class="form-control", placeholder="Enter your password") }}
             {% if form.password.errors %}
                 {% for error in form.password.errors %}
                     <span class="error">{{ error }}</span>
                 {% endfor %}
             {% endif %}
         </div>
-        <div class="form-group">
-            {{ form.remember_me() }} {{ form.remember_me.label }}
+        <div class="form-group" style="display: flex; align-items: center;">
+            {{ form.remember_me(style="margin-right: 8px; width: auto;") }}
+            {{ form.remember_me.label }}
         </div>
-        <button type="submit" class="btn btn-primary">Login</button>
+        {{ form.submit(class="btn btn-primary") }}
     </form>
 
     <hr> {# Optional separator #}

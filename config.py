@@ -44,6 +44,17 @@ class Config:
     STRIPE_PRICE_ID = os.environ.get('STRIPE_PRICE_ID') # Your $9.99/month Price ID
     STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET') # For verifying webhooks
 
+    # Email Configuration (for Flask-Mail)
+    MAIL_SERVER = os.environ.get('MAIL_SERVER') # e.g., 'smtp.googlemail.com'
+    MAIL_PORT = int(os.environ.get('MAIL_PORT') or 587) # Default to 587 (TLS)
+    MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', 'true').lower() in ['true', 'on', '1']
+    MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'false').lower() in ['true', 'on', '1']
+    # IMPORTANT: Use environment variables for credentials!
+    MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
+    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER') or MAIL_USERNAME # Default sender email
+    ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL') # Optional: Admin email for error reports
+
     @staticmethod
     def init_app(app):
         # Perform any initialization based on config if needed
@@ -67,6 +78,14 @@ class Config:
         if Config.OAUTHLIB_INSECURE_TRANSPORT:
             os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
             print("WARNING: OAUTHLIB_INSECURE_TRANSPORT enabled for local HTTP testing.", file=os.sys.stderr)
+
+        # Add checks/warnings for Mail config
+        if not Config.MAIL_SERVER:
+             print("WARNING: MAIL_SERVER not set. Email sending will fail.", file=os.sys.stderr)
+        if not Config.MAIL_USERNAME or not Config.MAIL_PASSWORD:
+             print("WARNING: MAIL_USERNAME or MAIL_PASSWORD not set. Email sending will fail.", file=os.sys.stderr)
+        if not Config.MAIL_DEFAULT_SENDER:
+             print("WARNING: MAIL_DEFAULT_SENDER not set. Using MAIL_USERNAME as default sender.", file=os.sys.stderr)
 
 
 class DevelopmentConfig(Config):

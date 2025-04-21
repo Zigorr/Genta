@@ -10,6 +10,7 @@ from flask_login import UserMixin # Needed for the User class
 import sqlite3
 import traceback
 import datetime # Needed for timestamps
+import random
 
 # --- Configuration & Constants ---
 # load_dotenv(override=True) # Removed
@@ -78,20 +79,57 @@ def init_db():
         with conn.cursor() as cur:
 
             # Step 1: Create Table with full schema IF NOT EXISTS
-            print("Step 1: Ensuring users table exists with initial schema...")
+            print("Step 1: Ensuring users table exists with updated schema (email, names, verification)...")
             try:
-                # Define the ideal final schema here
+                # Create base table if not exists (without new columns initially)
                 cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT,
-                    google_id TEXT UNIQUE, tokens_used INTEGER DEFAULT 0 NOT NULL,
+                    id SERIAL PRIMARY KEY,
+                    username TEXT UNIQUE, -- Keep for now, make nullable
+                    password_hash TEXT,
+                    google_id TEXT UNIQUE,
+                    tokens_used INTEGER DEFAULT 0 NOT NULL,
                     is_subscribed BOOLEAN DEFAULT FALSE NOT NULL,
                     last_token_reset TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
                     CONSTRAINT password_or_google_id CHECK (password_hash IS NOT NULL OR google_id IS NOT NULL)
                 );
                 """)
-                conn.commit() # Commit table creation attempt
-                print("Step 1: Completed.")
+                conn.commit()
+
+                # Add new columns if they don't exist
+                new_columns = [
+                    ('first_name', 'TEXT'),
+                    ('last_name', 'TEXT'),
+                    ('email', 'TEXT UNIQUE'),
+                    ('is_verified', 'BOOLEAN DEFAULT FALSE'),
+                    ('verification_code', 'TEXT'),
+                    ('verification_code_expires_at', 'TIMESTAMP WITH TIME ZONE')
+                ]
+
+                if IS_POSTGRES:
+                    for col_name, col_type in new_columns:
+                        try:
+                            cur.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
+                            conn.commit()
+                        except Exception as e:
+                            print(f"Error adding column {col_name}: {e}")
+                            conn.rollback()
+                            raise
+                    # Make username nullable AFTER ensuring it exists (if it was NOT NULL before)
+                    cur.execute("ALTER TABLE users ALTER COLUMN username DROP NOT NULL;")
+                    conn.commit()
+                    # Add NOT NULL constraint to email if it was added
+                    cur.execute("ALTER TABLE users ALTER COLUMN email SET NOT NULL;")
+                    conn.commit()
+                else: # SQLite
+                     print("  Applying schema changes for SQLite...")
+                     for col_name, col_type in new_columns:
+                         _ensure_column_exists_sqlite_safe(conn, cur, 'users', col_name, col_type)
+                     # Cannot easily add NOT NULL or UNIQUE constraints via ALTER in SQLite
+                     print("  Note: SQLite limitations prevent adding NOT NULL/UNIQUE constraints via ALTER TABLE here.")
+                     # Cannot easily make username nullable via ALTER in SQLite
+
+                print("Step 1: Users table schema updated.")
             except Exception as e:
                 print(f"Error during Step 1 (Create Table If Not Exists): {e}")
                 conn.rollback()
@@ -128,12 +166,15 @@ def init_db():
             print("Step 2 & 3: Column migration completed.")
 
             # Step 4: Ensure Indices Exist
-            print("Step 4: Ensuring indices exist...")
+            print("Step 4: Ensuring indices exist (username, email, google_id)...")
             try:
+                # Keep username index for now, might remove later
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);")
+                # Add email index
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id);")
-                conn.commit() # Commit index creation
-                print("Step 4: Completed.")
+                conn.commit()
+                print("Step 4: Indices completed.")
             except Exception as e:
                 print(f"Error during Step 4 (Create Indices): {e}")
                 conn.rollback()
@@ -352,14 +393,20 @@ def _ensure_password_hash_nullable(conn, cursor, table):
 # --- User Data Model ---
 class User(UserMixin):
     """Represents a user in the system, compatible with Flask-Login."""
-    def __init__(self, id, username, password_hash=None, google_id=None, tokens_used=0, is_subscribed=False, last_token_reset=None):
+    def __init__(self, id, username, password_hash=None, google_id=None,
+                 tokens_used=0, is_subscribed=False, last_token_reset=None,
+                 first_name=None, last_name=None, email=None, is_verified=False):
         self.id = id
-        self.username = username
+        self.username = username # Keep for now
         self.password_hash = password_hash
         self.google_id = google_id
         self.tokens_used = tokens_used
         self.is_subscribed = is_subscribed
         self.last_token_reset = last_token_reset
+        self.first_name = first_name
+        self.last_name = last_name
+        self.email = email
+        self.is_verified = is_verified # Add verification status
 
     def get_id(self):
         # Flask-Login requires get_id to return a string
@@ -372,70 +419,85 @@ def get_user_by_id(user_id):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            # Fetch all needed columns for User object, including new ones
-            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed, last_token_reset FROM users WHERE id = %s", (user_id,))
+            # Fetch all columns needed for User object
+            cur.execute("""SELECT id, username, password_hash, google_id, tokens_used,
+                           is_subscribed, last_token_reset, first_name, last_name, email, is_verified
+                           FROM users WHERE id = %s""", (user_id,))
             return cur.fetchone()
     finally:
         release_db_connection(conn)
 
-
-def get_user_by_username(username):
+# NEW function to get user by email
+def get_user_by_email(email):
+    if not email: return None
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            # Fetch all needed columns for User object, including new ones
-            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed, last_token_reset FROM users WHERE username = %s", (username,))
+            # Fetch all columns needed for User object
+            cur.execute("""SELECT id, username, password_hash, google_id, tokens_used,
+                           is_subscribed, last_token_reset, first_name, last_name, email, is_verified
+                           FROM users WHERE email = %s""", (email.lower(),)) # Store/compare email lowercase
             return cur.fetchone()
     finally:
         release_db_connection(conn)
-
 
 def get_user_by_google_id(google_id):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-             # Fetch all needed columns for User object, including new ones
-            cur.execute("SELECT id, username, password_hash, google_id, tokens_used, is_subscribed, last_token_reset FROM users WHERE google_id = %s", (google_id,))
+            cur.execute("""SELECT id, username, password_hash, google_id, tokens_used,
+                           is_subscribed, last_token_reset, first_name, last_name, email, is_verified
+                           FROM users WHERE google_id = %s""", (google_id,))
             return cur.fetchone()
     finally:
         release_db_connection(conn)
 
-
-def add_user(username, password_hash=None, google_id=None):
-    # Basic validation
-    if not username or (password_hash is None and google_id is None):
-        print("Error: Username and either password or google_id are required to add user.")
+def add_user(email, password_hash, first_name, last_name, google_id=None, is_verified=False):
+    """Adds a user with email, names, password/google_id. Generates username."""
+    if not email or not first_name or not last_name or (password_hash is None and google_id is None):
+        print("Error: Email, first/last name, and password/google_id required.")
         return False, None
 
+    # Simple username generation (email prefix, handle potential duplicates later if needed)
+    username = email.split('@')[0]
+    # TODO: Add logic to handle duplicate generated usernames if username needs to be unique
+
     conn = get_db_connection()
+    sql = """INSERT INTO users (username, email, password_hash, first_name, last_name, google_id, is_verified)
+             VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id"""
     try:
         with conn.cursor() as cur:
-            # Insert user with default values for new columns
-            cur.execute("INSERT INTO users (username, password_hash, google_id) VALUES (%s, %s, %s) RETURNING id",
-                        (username, password_hash, google_id))
+            cur.execute(sql, (username, email.lower(), password_hash, first_name, last_name, google_id, is_verified))
             new_user_id = cur.fetchone()[0]
             conn.commit()
-            return True, new_user_id # Return success and new ID
+            print(f"Added user {new_user_id} with email {email.lower()}")
+            return True, new_user_id
     except (psycopg2.IntegrityError, sqlite3.IntegrityError) as e:
-        # Check if it's a unique violation (PostgreSQL code 23505)
         if (IS_POSTGRES and hasattr(e, 'pgcode') and e.pgcode == '23505') or \
            (not IS_POSTGRES and "unique constraint failed" in str(e).lower()):
             conn.rollback()
-            print(f"Database integrity error adding user '{username}' (Unique Violation): {e}")
+            # Check if it's the email or username constraint
+            if 'users_email_key' in str(e) or 'users.email' in str(e):
+                 print(f"Database integrity error adding user '{email.lower()}' (Email already exists): {e}")
+            elif 'users_username_key' in str(e) or 'users.username' in str(e):
+                 print(f"Database integrity error adding user '{email.lower()}' (Generated username '{username}' already exists): {e}")
+                 # TODO: Implement username regeneration/suffix logic here if needed
+            else:
+                print(f"Database integrity error adding user '{email.lower()}' (Unique Violation): {e}")
             return False, None
         else:
-            # Different integrity error, handle or re-raise
-            conn.rollback()
-            print(f"Database integrity error adding user '{username}': {e}")
-            return False, None
+             # ... (handle other integrity errors) ...
+             conn.rollback()
+             print(f"Database integrity error adding user '{email.lower()}': {e}")
+             return False, None
     except Exception as e:
+        # ... (general error handling) ...
         conn.rollback()
-        print(f"Unexpected error adding user '{username}': {e}")
+        print(f"Unexpected error adding user '{email.lower()}': {e}")
         traceback.print_exc()
-        return False, None # Indicate failure
+        return False, None
     finally:
         release_db_connection(conn)
-
 
 # NEW function to get specific user details needed for checks
 def get_user_token_details(user_id):
@@ -453,7 +515,6 @@ def get_user_token_details(user_id):
         return None # Return None on error
     finally:
         release_db_connection(conn)
-
 
 # NEW function to update token usage
 def update_token_usage(user_id, tokens_increment):
@@ -479,9 +540,19 @@ def create_conversation(user_id, title=None):
     if not conn:
         print("ERROR: Could not get DB connection to create conversation.", file=sys.stderr)
         return None
-    # Generate a default title if none provided (e.g., based on timestamp)
+    
+    # Generate automatic title like "Chat N"
     if not title:
-        title = f"Chat from {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        try:
+            with conn.cursor() as cur:
+                # Count existing conversations for this user to determine next number
+                cur.execute("SELECT COUNT(*) FROM conversations WHERE user_id = %s", (user_id,))
+                count = cur.fetchone()[0]
+                title = f"Chat {count}"
+        except Exception as e:
+            print(f"Error counting conversations for user {user_id} to generate title: {e}")
+            # Fallback title if count fails
+            title = f"Chat from {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
     sql = "INSERT INTO conversations (user_id, title, created_at, last_updated_at) VALUES (%s, %s, %s, %s) RETURNING id"
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -490,7 +561,7 @@ def create_conversation(user_id, title=None):
             cur.execute(sql, (user_id, title, now, now))
             new_conversation_id = cur.fetchone()[0]
             conn.commit()
-            print(f"Created conversation {new_conversation_id} for user {user_id}")
+            print(f"Created conversation {new_conversation_id} ('{title}') for user {user_id}")
             return new_conversation_id
     except Exception as e:
         print(f"Error creating conversation for user {user_id}: {e}", file=sys.stderr)
@@ -773,4 +844,55 @@ def get_password_hash(user_id):
         print(f"Error fetching password hash for user {user_id}: {e}", file=sys.stderr)
         return None
     finally:
-        if conn: release_db_connection(conn) 
+        if conn: release_db_connection(conn)
+
+# NEW function to get verification details by email
+def get_verification_details(email):
+    if not email: return None
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Fetch needed columns
+            cur.execute("""SELECT id, is_verified, verification_code, verification_code_expires_at
+                           FROM users WHERE email = %s""", (email.lower(),))
+            return cur.fetchone() # Returns tuple or None
+    except Exception as e:
+        print(f"Error getting verification details for {email}: {e}")
+        return None
+    finally:
+        release_db_connection(conn)
+
+# NEW function to set verification code
+def set_verification_code(user_id, code, expires_at):
+    conn = get_db_connection()
+    sql = "UPDATE users SET verification_code = %s, verification_code_expires_at = %s WHERE id = %s"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (code, expires_at, user_id))
+            conn.commit()
+            print(f"Set verification code for user {user_id}.")
+            return True
+    except Exception as e:
+        print(f"Error setting verification code for user {user_id}: {e}")
+        conn.rollback()
+        return False
+    finally:
+        release_db_connection(conn)
+
+# NEW function to mark user as verified
+def verify_user(user_id):
+    conn = get_db_connection()
+    # Set verified, clear code and expiry
+    sql = "UPDATE users SET is_verified = TRUE, verification_code = NULL, verification_code_expires_at = NULL WHERE id = %s"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (user_id,))
+            conn.commit()
+            print(f"Verified user {user_id}.")
+            return True
+    except Exception as e:
+        print(f"Error verifying user {user_id}: {e}")
+        conn.rollback()
+        return False
+    finally:
+        release_db_connection(conn) 

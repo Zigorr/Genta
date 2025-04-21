@@ -77,7 +77,7 @@
         </div>
         <div id="user-nav-bottom">
              {% if current_user and current_user.is_authenticated %}
-                 <a href="{{ url_for('settings.view_settings') }}" title="Settings">⚙️ {{ current_user.username }} Settings</a>
+                 <a href="{{ url_for('settings.view_settings') }}" title="Settings">⚙️ {{ current_user.first_name }} {{ current_user.last_name }} Settings</a>
              {% endif %}
              <a href="{{ url_for('auth.logout') }}">🚪 Logout</a>
         </div>
@@ -287,21 +287,25 @@
                     const newConvoId = data.conversation_id;
                     currentConversationId = newConvoId;
                     setActiveConversation(newConvoId);
-                    // Add to sidebar dynamically
+                    
+                    // --- Add new conversation to sidebar dynamically --- 
                     const newConvoItem = document.createElement('div');
                     newConvoItem.classList.add('conversation-item', 'active');
                     newConvoItem.dataset.id = newConvoId;
-                    // Create title (e.g., from first message, or use default from server if provided)
-                    const defaultTitle = `Chat ${newConvoId}`; // Simple title
+                    
+                    // Generate title client-side (similar to backend logic)
+                    // Count existing items (excluding potential placeholder)
+                    const existingConvoCount = conversationList.querySelectorAll('.conversation-item').length;
+                    const newTitle = `Chat ${existingConvoCount}`; 
+                    
                     newConvoItem.innerHTML = `
-                        <span class="conversation-title" title="${defaultTitle}">${defaultTitle}</span>
+                        <span class="conversation-title" title="${newTitle}">${newTitle}</span>
                         <button class="delete-convo-button" data-id="${newConvoId}" title="Delete Chat">&times;</button>
                     `;
-                    // Prepend to the list (most recent first)
-                    conversationList.prepend(newConvoItem);
+                    conversationList.prepend(newConvoItem); // Add to top
                     // Optionally update URL: history.pushState({}, '', '/chat/' + newConvoId);
                 } else if (data.conversation_id) {
-                     currentConversationId = data.conversation_id;
+                     currentConversationId = data.conversation_id; // Ensure ID is set
                 }
 
                 if (response.status === 403 && data.limit_reached === true) {

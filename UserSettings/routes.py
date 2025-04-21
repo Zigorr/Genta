@@ -9,11 +9,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from . import settings_bp
 from Database.database_manager import (
     get_user_token_details, set_user_subscription, 
-    update_username, update_password_hash, get_password_hash,
-    get_user_by_username # Needed for username check
+    update_username, update_password_hash, get_password_hash
 )
-# Import the new forms
-from Auth.forms import ChangeUsernameForm, ChangePasswordForm 
+# Import only needed forms
+from Auth.forms import ChangePasswordForm 
 
 # Configure Stripe API key on blueprint load (or app factory)
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
@@ -35,7 +34,6 @@ def view_settings():
     token_limit = current_app.config.get('FREE_TIER_TOKEN_LIMIT', 200)
 
     # Instantiate forms for rendering
-    change_username_form = ChangeUsernameForm()
     change_password_form = ChangePasswordForm()
 
     # Pass forms to the template context
@@ -43,42 +41,7 @@ def view_settings():
                            user=current_user, 
                            user_details=user_details,
                            token_limit=token_limit,
-                           change_username_form=change_username_form,
                            change_password_form=change_password_form)
-
-@settings_bp.route('/change-username', methods=['POST'])
-@login_required
-def change_username():
-    form = ChangeUsernameForm() # Instantiate form with POST data
-    if form.validate_on_submit():
-        new_username = form.username.data
-        user_id = current_user.id
-
-        # Extra check: ensure username is different
-        if new_username == current_user.username:
-            flash('New username must be different from the current one.', 'warning')
-            return redirect(url_for('settings.view_settings'))
-
-        # Check if username already exists (Database function also checks, but good for UX)
-        existing_user = get_user_by_username(new_username)
-        if existing_user:
-            flash('That username is already taken. Please choose another.', 'error')
-        else:
-            # Attempt to update username
-            success = update_username(user_id, new_username)
-            if success:
-                flash('Username successfully updated!', 'success')
-                # Note: current_user object might not update immediately in the same request
-                # Forcing re-login or fetching user again might be needed if displaying updated name right away
-            else:
-                 flash('An error occurred while updating your username. It might be taken.', 'error')
-    else:
-         # Flash form validation errors
-         for field, errors in form.errors.items():
-              for error in errors:
-                  flash(f"Error in {getattr(form, field).label.text}: {error}", 'error')
-
-    return redirect(url_for('settings.view_settings')) # Redirect back even on failure
 
 @settings_bp.route('/change-password', methods=['POST'])
 @login_required

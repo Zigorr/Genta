@@ -1,34 +1,36 @@
 # Auth/forms.py
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, BooleanField, SubmitField
-from wtforms.validators import DataRequired, Length, EqualTo, ValidationError, Regexp
+from wtforms.validators import DataRequired, Length, EqualTo, ValidationError, Regexp, Email
 import re # For password complexity
 
 # Optional: Import your get_user_by_username function if needed for validation
-from Database.database_manager import get_user_by_username
+# REMOVED: from Database.database_manager import get_user_by_username
+from Database.database_manager import get_user_by_email
 
-# Helper function for username validation
-def validate_username_unique(form, field):
-    if get_user_by_username(field.data):
-        raise ValidationError('Username already taken. Please choose a different one.')
+# Helper function for email uniqueness validation
+def validate_email_unique(form, field):
+    if get_user_by_email(field.data):
+        raise ValidationError('Email address already registered.')
 
 class LoginForm(FlaskForm):
-    username = StringField('Username', validators=[DataRequired()])
+    email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[DataRequired()])
     remember_me = BooleanField('Remember Me')
     submit = SubmitField('Login')
 
 class RegistrationForm(FlaskForm):
-    username = StringField('Username', validators=[
-        DataRequired(), 
-        Length(min=4, max=25), 
-        Regexp(r'^[a-zA-Z0-9]+$', message="Username must contain only letters and numbers (no spaces)."),
-        validate_username_unique
+    first_name = StringField('First Name', validators=[DataRequired(), Length(min=1, max=50)])
+    last_name = StringField('Last Name', validators=[DataRequired(), Length(min=1, max=50)])
+    email = StringField('Email', validators=[
+        DataRequired(),
+        Email(message='Invalid email address.'),
+        Length(max=120),
+        validate_email_unique
     ])
     password = PasswordField('Password', validators=[
         DataRequired(),
         Length(min=8, message='Password must be at least 8 characters long.'),
-        # Ensure regex uses double backslashes for escaping within the string
         Regexp(r'.*[A-Z].*', message='Password must contain at least one uppercase letter.'),
         Regexp(r'.*[0-9].*', message='Password must contain at least one numeral.')
     ])
@@ -46,21 +48,6 @@ class RegistrationForm(FlaskForm):
     #     if user:
     #         raise ValidationError('That username is already taken. Please choose a different one.') 
 
-class ChangeUsernameForm(FlaskForm):
-    username = StringField('New Username', validators=[
-        DataRequired(), 
-        Length(min=4, max=25), 
-        Regexp(r'^[a-zA-Z0-9]+$', message="Username must contain only letters and numbers (no spaces)."),
-        validate_username_unique
-    ])
-    submit = SubmitField('Change Username')
-
-    # Optional: Add validator to check if new username is different from current
-    # def validate_username(self, username):
-    #     if username.data == current_user.username: # Requires importing current_user
-    #         raise ValidationError('New username must be different from the current one.')
-        # You might also re-check uniqueness here, although the DB and route handler will do it.
-
 class ChangePasswordForm(FlaskForm):
     current_password = PasswordField('Current Password', validators=[DataRequired()])
     new_password = PasswordField('New Password', validators=[
@@ -75,18 +62,15 @@ class ChangePasswordForm(FlaskForm):
     ])
     submit = SubmitField('Change Password')
 
-class SetUsernameForm(FlaskForm):
-    username = StringField('Username', validators=[
-        DataRequired(), 
-        Length(min=4, max=25), 
-        Regexp(r'^[a-zA-Z0-9]+$', message="Username must contain only letters and numbers (no spaces)."),
-        validate_username_unique
+class VerificationForm(FlaskForm):
+    """Form for submitting the 4-digit email verification code."""
+    code = StringField('Verification Code', validators=[
+        DataRequired(),
+        Length(min=4, max=4, message='Code must be 4 digits.'),
+        Regexp(r'^[0-9]{4}$' , message='Code must contain only digits.')
     ])
-    submit = SubmitField('Set Username')
+    submit = SubmitField('Verify Account')
 
-    # Add validator to check if username already exists
-    def validate_username(self, username):
-        # Needs access to the database check function
-        user = get_user_by_username(username.data)
-        if user:
-            raise ValidationError('That username is already taken. Please choose a different one.') 
+# Deprecated/Unused forms related to username
+# class ChangeUsernameForm(FlaskForm): ...
+# class SetUsernameForm(FlaskForm): ... 
