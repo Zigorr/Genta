@@ -10,6 +10,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from agency_swarm import set_openai_key
 from flask_bootstrap import Bootstrap # Import Bootstrap
 from flask_mail import Mail # Import Mail
+from .extensions import mail, login_manager # Import instances from extensions
 
 # Import config
 from config import config # Use the dictionary defined in config.py
@@ -30,10 +31,8 @@ from UserSettings import settings_bp # Import the new blueprint
 from flask_dance.contrib.google import make_google_blueprint
 
 # Initialize extensions (outside factory to make them accessible)
-login_manager = LoginManager()
-login_manager.login_view = 'auth.login' # The endpoint name for the login route
-mail = Mail() # Initialize Mail object
-
+# login_manager = LoginManager()
+# mail = Mail() 
 
 def create_app(config_name='default'):
     """Application factory function."""
@@ -56,6 +55,10 @@ def create_app(config_name='default'):
     login_manager.init_app(app)
     Bootstrap(app) # Initialize Bootstrap here
     mail.init_app(app) # Initialize Mail with the app
+
+    # Set login_view after initializing login_manager with app
+    # Note: Ensure the endpoint name 'auth.login' is correct
+    login_manager.login_view = 'auth.login'
 
     # Set OpenAI API Key (check moved to config.init_app)
     if app.config.get('OPENAI_API_KEY'):
