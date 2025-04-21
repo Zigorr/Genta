@@ -115,12 +115,33 @@ def init_db():
                             print(f"Error adding column {col_name}: {e}")
                             conn.rollback()
                             raise
+                    # --- Update existing NULL emails before applying NOT NULL --- 
+                    print("  Updating existing NULL emails...")
+                    try:
+                        # Use username if available, otherwise a placeholder
+                        cur.execute("""UPDATE users SET email = 
+                                        CASE
+                                            WHEN username IS NOT NULL AND username != '' THEN username || '@placeholder.invalid'
+                                            ELSE 'placeholder_' || id::text || '@placeholder.invalid'
+                                        END
+                                     WHERE email IS NULL;""")
+                        conn.commit()
+                        print(f"  Updated {cur.rowcount} rows with placeholder emails.")
+                    except Exception as update_e:
+                        print(f"Error updating NULL emails: {update_e}")
+                        conn.rollback()
+                        # Don't raise here, allow proceeding without NOT NULL if update fails?
+                        # Or raise if email is critical? For now, let's log and continue, NOT NULL will fail below.
+
                     # Make username nullable AFTER ensuring it exists (if it was NOT NULL before)
                     cur.execute("ALTER TABLE users ALTER COLUMN username DROP NOT NULL;")
                     conn.commit()
-                    # Add NOT NULL constraint to email if it was added
+                    
+                    # Add NOT NULL constraint to email (this should succeed now if update worked)
+                    print("  Applying NOT NULL constraint to email column...")
                     cur.execute("ALTER TABLE users ALTER COLUMN email SET NOT NULL;")
                     conn.commit()
+                    print("  Email NOT NULL constraint applied.")
                 else: # SQLite
                      print("  Applying schema changes for SQLite...")
                      for col_name, col_type in new_columns:
